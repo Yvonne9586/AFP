@@ -24,7 +24,7 @@ for key in sheet_to_map.keys():
     if (key != 'MXEF' and key!= 'SPX INDEX'):
         df = df.merge(sheet_to_map[key], left_index = True, right_index = True).rename(columns = {sheet_to_map[key].columns[0] : key})
 
-
+df = df.sort_index()
 ###write index data to csv
 df.to_csv('indexes.csv')    
 
@@ -117,7 +117,7 @@ for i in range(0,2*(35*12 +11)):
     df0 = corr.loc[sortIx, sortIx]
     hrp = pd.DataFrame(getRecBipart(cov, sortIx)).T
     #hrp = hrp/hrp.sum(axis = 1)[0]
-    w[i] = hrp.T - 0.3
+    w[i] = hrp.T
     hrp.index= ['weight']
     test = pd.concat([test, hrp],join = 'inner')
     oos[i] = pd.DataFrame(np.array(test.iloc[-1,:])*test.iloc[:-1,:]).sum(axis = 1)

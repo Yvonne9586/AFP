@@ -60,14 +60,16 @@ def getIVP(cov,**kargs):
     return ivp
 
 
-def getClusterVar(cov, cItems):
+def getClusterVar(cov, cItems, mean):
     cov_ = cov.loc[cItems,cItems]
+    mean_ = mean.loc[cItems]
     w_ = getIVP(cov_).reshape(-1,1)
-    cVar = np.dot(np.dot(w_.T,cov_),w_)[0,0]
+    #cVar = np.dot(np.dot(w_.T,cov_),w_)[0,0] * np.dot(w_.T,mean_)[0] 
+    cVar = np.sqrt(np.dot(np.dot(w_.T,cov_),w_)[0,0])
     return cVar
 
 
-def getRecBipart(cov, sortIx):
+def getRecBipart(cov, sortIx, mean):
     w = pd.Series(1, index = sortIx)
     cItems = [sortIx]
     while len(cItems)>0:
@@ -75,8 +77,8 @@ def getRecBipart(cov, sortIx):
         for i in range(0,len(cItems),2):
             cItems0 = cItems[i]
             cItems1 = cItems[i+1]
-            cVar0 = getClusterVar(cov, cItems0)
-            cVar1 = getClusterVar(cov, cItems1)
+            cVar0 = getClusterVar(cov, cItems0, mean)
+            cVar1 = getClusterVar(cov, cItems1, mean)
             alpha = 1 - cVar0/(cVar0+cVar1)
             w[cItems0]*=alpha
             w[cItems1]*=1- alpha
@@ -101,22 +103,24 @@ dn = dendrogram(link, labels = ret_df.columns )
 plt.show()
 
 
-#moving window clustering
+#moving window clustering on covariance
 oos = {}
 w = {}
-train_period = 50
-test_period = 10
-for i in range(0,2*(35*12 +11)):
+train_period = 520
+test_period = 60
+for i in range(0, int((ret_df.shape[0] - train_period)/test_period)):
     train = ret_df.iloc[i*test_period:(train_period + i*test_period) ,:]
     test = ret_df.iloc[(train_period + i*test_period +1):(train_period + i*test_period +1 + test_period)  ,:]
     cov, corr = train.cov(), train.corr()
+    mean = train.mean()
     dist = ((1- corr/2.))**.5
     link = sch.linkage(dist, 'single')
     sortIx = getQuasiDiag(link)
     sortIx= corr.index[sortIx].tolist()
     df0 = corr.loc[sortIx, sortIx]
-    hrp = pd.DataFrame(getRecBipart(cov, sortIx)).T
+    hrp = pd.DataFrame(getRecBipart(cov, sortIx, mean)).T
     #hrp = hrp/hrp.sum(axis = 1)[0]
+    hrp[np.abs(hrp)>1] = 1
     w[i] = hrp.T
     hrp.index= ['weight']
     test = pd.concat([test, hrp],join = 'inner')
@@ -135,10 +139,46 @@ for key in oos.keys():
 oos_test = oos_test.sort_index()
 plt.plot(np.exp(oos_test.cumsum()))
 
-#diagnostic
-#ret_df[(ret_df.index >= datetime.datetime(1986,1,1)) & (ret_df.index< datetime.datetime(1988,1,1))].plot()
+#moving window clustering on drawdown (expanding window)
+from scipy.spatial.distance import cdist
+
+oos = {}
+w = {}
+train_period = 250*5
+test_period = 60
+for i in range(0, int((ret_df.shape[0] - train_period)/test_period)):
+    train = ret_df.iloc[:(train_period + i*test_period) ,:]
+    test = ret_df.iloc[(train_period + i*test_period +1):(train_period + i*test_period +1 + test_period)  ,:]
+    drawdown = -mdd(train)
+    dist = np.zeros((drawdown.shape[0],drawdown.shape[0]))
+    for h in range(drawdown.shape[0]):
+        for k in range(drawdown.shape[0]):
+            dist[h,k] = np.abs(drawdown.iloc[h] - drawdown.iloc[k])
+    dist = pd.DataFrame(dist, columns = drawdown.index, index = drawdown.index)     
+    link = sch.linkage(dist, 'single')
+    sortIx = getQuasiDiag(link)
+    sortIx= corr.index[sortIx].tolist()
+    df0 = corr.loc[sortIx, sortIx]
+    hrp = pd.DataFrame(getRecBipart(cov, sortIx, mean)).T
+    hrp[np.abs(hrp)>1] = 1
+    hrp = hrp/hrp.sum(axis = 1)[0]
+    w[i] = hrp.T
+    hrp.index= ['weight']
+    test = pd.concat([test, hrp],join = 'inner')
+    oos[i] = pd.DataFrame(np.array(test.iloc[-1,:])*test.iloc[:-1,:]).sum(axis = 1)
+    
+    
+oos_test = pd.DataFrame(oos[0]).rename(columns = {0:'ret'})
+weights = pd.DataFrame(w[0]).rename(columns = {0: ret_df.index[train_period + 1]})
 
 
+for key in oos.keys():
+    if key != 0:
+        oos_test = pd.concat([oos_test,pd.DataFrame(oos[key]).rename(columns = {0:'ret'})])
+        weights = weights.merge(pd.DataFrame(w[key]).rename(columns = {0: ret_df.index[train_period + key*test_period + 1]}), left_index =  True, right_index = True)
+#plot out of sample performance
+oos_test = oos_test.sort_index()
+plt.plot(np.exp(oos_test.cumsum()))
 
 
 
@@ -157,14 +197,14 @@ def ceq(ret, gamma):
 
  
 def mdd(ret):
-    ret = ret.add(1)
-    ret = ret.apply(pd.to_numeric)
-    dd = ret.divide(ret.cummax()).sub(1)
+    cum_ret = pd.DataFrame(np.exp(ret.cumsum()))
+    cum_ret = cum_ret.apply(pd.to_numeric)
+    dd = cum_ret.divide(cum_ret.cummax()).sub(1)
     # dd = r.sub(r.cummax())
     mdd = dd.min()
-    end = dd.idxmin()
-    start = ret.loc[:end].idxmax()
-    return mdd, start, end
+    #end = dd.idxmin()
+    #start = ret.loc[:end].idxmax()
+    return mdd
     
 def turnover(weights):
     sum = 0

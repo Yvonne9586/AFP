@@ -47,7 +47,39 @@ def calc_rebal(x, portfolio_df, index_df, weights_df, txn_cost):
     return 0
 
 
-def calc_metrics(title, car):
+def adj_sr(ret):
+    sr = ret.mean() / ret.std() * np.sqrt(252)
+    skew = ret.skew()
+    kurt = ret.kurtosis()
+    return sr * (1 + skew / 6 * sr - (kurt - 3) / 24 * sr ** 2)
+
+
+def cert_eqv_ret(ret, gamma=3, rf=2):
+    mu = ret.mean() * 252
+    sigma = ret.std() * np.sqrt(252)
+    return (mu - rf) - gamma * 0.5 * sigma ** 2
+
+
+def max_drawdown(ret):
+    dd = ret.cumsum() / ret.cummax() - 1
+    mdd = dd.min()
+    end = dd.idxmin()
+    start = ret.loc[:end].idxmax()
+    return mdd, start, end
+
+
+def turnover(weights):
+    s = 0
+    for i in range(weights.shape[1] - 1):
+        s += np.abs(weights.iloc[:, i] - weights.iloc[:, i + 1]).sum()
+    return s / weights.shape[1]
+
+
+def ss_ports_wt(weights):
+    return np.sum(np.sum(weights ** 2)) / weights.shape[1]
+
+
+def calc_metrics(title, car, weights):
     returns = (car - car.shift(1))/car.shift(1)
     results = {
         'total return': car.values[-1]/car.values[0],
@@ -55,7 +87,12 @@ def calc_metrics(title, car):
         'std': returns.std(),
         'skew': returns.skew(),
         'kurtosis': returns.kurtosis(),
-        'mean/std': (returns.mean()/returns.std())
+        'ir': (returns.mean()/returns.std()),
+        'adj sr': adj_sr(returns),
+        'cer': cert_eqv_ret(returns),
+        'mdd': max_drawdown(returns)[0],
+        'turnover': turnover(weights),
+        'sspw': ss_ports_wt(weights)
     }
     return pd.DataFrame(results, index=[title])
 
@@ -116,15 +153,15 @@ def main():
     total_return = df_rebal.sum(axis=1)
 
     # output dfs
-    df_rebal.to_csv('data/rebal.csv')
-    weights_df.to_csv('data/weights.csv')
-    vol_forecast_df.to_csv('data/vol_forecast.csv')
+    # df_rebal.to_csv('data/rebal.csv')
+    # weights_df.to_csv('data/weights.csv')
+    # vol_forecast_df.to_csv('data/vol_forecast.csv')
 
     # display/plot results
-    plt.rcParams["figure.figsize"] = (20, 10)
+    plt.rcParams["figure.figsize"] = (8, 5)
     total_return.plot(grid=True, title='Risk parity')
-    results_metrics = calc_metrics('Risk parity', total_return)
-    print(results_metrics)
+    results_metrics = calc_metrics('Risk parity', total_return, weights_df)
+    print(results_metrics.to_string())
     plt.show()
 
 

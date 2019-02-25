@@ -39,5 +39,5 @@ for file_ in allFiles:
     df = df[~df.index.duplicated(keep='first')]
     idx_dict[idx] = df
 idx_df = pd.concat(idx_dict, axis=1)
-#idx_df.to_csv("data/gfd.csv")
+idx_df.loc['1981/05/26':, :].resample('M').last().to_csv("data/gfd_monthly.csv")
 returns = idx_df.resample('M').last().pct_change()

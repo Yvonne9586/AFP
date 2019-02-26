@@ -81,7 +81,7 @@ def asp(ret):
     s4 = kurtosis(ret)
     return sr*(1+ s3/6*sr  - (s4 - 3)/24*sr**2)
 
-def ceq(ret_df,ret, gamma):
+def ceq(ret, gamma):
     rf = 0.03
     mu = ret.mean()*12
     sigma = ret.std()*np.sqrt(12)

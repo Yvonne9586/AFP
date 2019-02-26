@@ -15,7 +15,7 @@ def calc_weights(method='risk_parity', vol_forecast_df=None):
 
 def get_data(file_location):
     # get the data, clean it, merge it
-    df = pd.read_csv(file_location, index_col=0).dropna()
+    df = pd.read_csv(file_location, index_col=0)#.dropna()
     df.index = pd.to_datetime(df.index)
     df = df.sort_index(ascending=True)
     return df
@@ -47,15 +47,53 @@ def calc_rebal(x, portfolio_df, index_df, weights_df, txn_cost):
     return 0
 
 
-def calc_metrics(title, car):
+def adj_sr(ret):
+    sr = ret.mean() / ret.std() * np.sqrt(12)
+    skew = ret.skew()
+    kurt = ret.kurtosis()
+    return sr * (1 + skew / 6 * sr - (kurt - 3) / 24 * sr ** 2)
+
+
+def cert_eqv_ret(ret, gamma=3, rf=2):
+    mu = ret.mean() * 12
+    sigma = ret.std() * np.sqrt(12)
+    return (mu - rf) - gamma * 0.5 * sigma ** 2
+
+
+def max_drawdown(ret):
+    ret_sum = ret.cumsum()
+    dd = ret_sum / ret_sum.cummax() - 1
+    mdd = dd.min()
+    end = dd.idxmin()
+    start = ret.loc[:end].idxmax()
+    return mdd, start, end
+
+
+def turnover(weights):
+    s = 0
+    for i in range(weights.shape[1] - 1):
+        s += np.abs(weights.iloc[:, i] - weights.iloc[:, i + 1]).sum()
+    return s / weights.shape[1]
+
+
+def ss_ports_wt(weights):
+    return np.sum(np.sum(weights ** 2)) / weights.shape[1]
+
+
+def calc_metrics(title, car, weights):
     returns = (car - car.shift(1))/car.shift(1)
     results = {
         'total return': car.values[-1]/car.values[0],
-        'mean': returns.mean(),
-        'std': returns.std(),
+        'mean': returns.mean() * 12,
+        'std': returns.std() * np.sqrt(12),
         'skew': returns.skew(),
         'kurtosis': returns.kurtosis(),
-        'mean/std': (returns.mean()/returns.std())
+        'ir': (returns.mean()/returns.std()),
+        'adj sr': adj_sr(returns),
+        'cer': cert_eqv_ret(returns),
+        'mdd': max_drawdown(returns)[0],
+        'turnover': turnover(weights),
+        'sspw': ss_ports_wt(weights)
     }
     return pd.DataFrame(results, index=[title])
 
@@ -101,7 +139,7 @@ def calc_vol_forecast(returns_df, method='r_vol'):
 def main():
     # get index data
     index_df = get_data("data/indexes.csv")
-    index_df = index_df.loc[:, ['US10Y', 'RTY INDEX', 'SPX INDEX', 'GOLD']]
+    index_df = index_df.loc[:, ['US10Y', 'RTY INDEX', 'SPX INDEX', 'GOLD']].dropna()
     # get percentage change
     index_change_df = index_df.pct_change().dropna()
 
@@ -113,18 +151,32 @@ def main():
 
     # calc rebal
     df_rebal = calc_results_matrix(index_df=index_df, weights_df=weights_df, rebal_period='M')
-    total_return = df_rebal.sum(axis=1)
+    total_return = df_rebal.sum(axis=1).rename('Risk Parity')
+
+    # calc metrics
+    results_metrics = calc_metrics('Risk parity', total_return, weights_df)
 
     # output dfs
-    df_rebal.to_csv('data/rebal.csv')
-    weights_df.to_csv('data/weights.csv')
-    vol_forecast_df.to_csv('data/vol_forecast.csv')
+    # df_rebal.to_csv('data/rebal.csv')
+    # weights_df.to_csv('data/weights.csv')
+    # vol_forecast_df.to_csv('data/vol_forecast.csv')
+
+    # all-weather static rebal
+    aw_df = get_data("data/gfd_monthly.csv").loc[:, ['Gold', 'TRCommodity', 'USBond10Y', 'USBond5Y', 'USEq']].dropna()
+    weights_dict = {'Gold':0.075, 'TRCommodity':0.075, 'USBond10Y':0.4, 'USBond5Y':0.15, 'USEq':0.3}
+    weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
+    weights_aw.columns = aw_df.columns
+    aw_rebal = calc_results_matrix(index_df=aw_df, weights_df=weights_aw.iloc[1:, :], rebal_period='M')
+
+    # all-weather results
+    total_return = pd.concat([total_return, aw_rebal.sum(axis=1).rename('All Weather')], axis=1).dropna()
+    results_metrics = pd.concat([results_metrics, calc_metrics('All Weather', total_return['All Weather'], weights_aw)], axis=0)
 
     # display/plot results
-    plt.rcParams["figure.figsize"] = (20, 10)
-    total_return.plot(grid=True, title='Risk parity')
-    results_metrics = calc_metrics('Risk parity', total_return)
-    print(results_metrics)
+    plt.rcParams["figure.figsize"] = (8, 5)
+    total_return.plot(grid=True, title='Cumulative Return')
+    
+    print(results_metrics.to_string())
     plt.show()
 
 

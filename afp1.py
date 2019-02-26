@@ -15,6 +15,11 @@ from scipy.stats import skew , kurtosis
 import HRP
 import scipy.cluster.hierarchy as sch
 from scipy.cluster.hierarchy import dendrogram
+<<<<<<< HEAD
+=======
+from scipy.spatial.distance import cdist
+
+>>>>>>> origin/master
 
 #temp = {}
 #for file in os.listdir():
@@ -56,16 +61,28 @@ liquid = cs.resample('M').last()
 liquid = liquid.pct_change()
 
 ret_month = pd.merge(pd.merge(gfd, factor, left_index =True, right_index = True, how = 'inner'), liquid, left_index = True, right_index = True, how = 'inner')
+<<<<<<< HEAD
 del ret_month['USBondInt']
 ret_month.to_csv('ret_month.csv')
+=======
+>>>>>>> origin/master
 
 ret_month = ret_month.rename(columns = {'Value (HML FF)':'Value'})
 ret_month = ret_month.rename(columns = {'Momentum (UMD)':'Momentum'})
 ret_month = ret_month.rename(columns = {'Size (SMB)':'Size'})
 
+<<<<<<< HEAD
 #################One slump clustering###############
 cov,corr = ret_month.cov(), ret_month.corr()
 dist = ((1 - corr/2.))**.5
+=======
+ret_month.to_csv('data/ret_month.csv')
+
+
+#################One slump clustering###############
+cov,corr = ret_month.cov(), ret_month.corr()
+dist = ((1 - corr)/2)**.5
+>>>>>>> origin/master
 link = sch.linkage(dist, 'single')
 fig = plt.figure(figsize = (25,10))
 dn = dendrogram(link, labels = ret_month.columns )
@@ -78,13 +95,21 @@ plt.show()
 oos = {}
 w = {}
 train_period = 24
+<<<<<<< HEAD
 test_period = 5
+=======
+test_period = 3
+>>>>>>> origin/master
 for i in range(0, int((ret_month.shape[0] - train_period)/test_period)):
     train = ret_month.iloc[i*test_period:(train_period + i*test_period) ,:]
     test = ret_month.iloc[(train_period + i*test_period +1):(train_period + i*test_period +1 + test_period)  ,:]
     cov, corr = train.cov(), train.corr()
     mean = train.mean()
+<<<<<<< HEAD
     dist = ((1- corr/2.))**.5
+=======
+    dist = ((1- corr)/2)**.5
+>>>>>>> origin/master
     link = sch.linkage(dist, 'single')
     sortIx = HRP.getQuasiDiag(link)
     sortIx= corr.index[sortIx].tolist()
@@ -110,7 +135,72 @@ for key in oos.keys():
 oos_test = oos_test.sort_index()
 plt.plot(np.exp(oos_test.cumsum()))
 plt.xticks(rotation = 60)
+<<<<<<< HEAD
 plt.title('HRP Cov')
 
 
 #######
+=======
+#plot weights
+weights.T.plot(figsize = (15,10))
+
+###############one slump dd clustering#####################
+drawdown = -HRP.mdd(ret_month)
+dist = np.zeros((drawdown.shape[0],drawdown.shape[0]))
+for h in range(drawdown.shape[0]):
+    for k in range(drawdown.shape[0]):
+        dist[h,k] = np.abs(drawdown.iloc[h] - drawdown.iloc[k])
+dist = pd.DataFrame(dist, columns = drawdown.index, index = drawdown.index)     
+link = sch.linkage(dist, 'single')
+fig = plt.figure(figsize = (25,10))
+dn = dendrogram(link, labels = ret_month.columns )
+plt.show()
+
+
+
+
+###############drawdown hrp###############################
+oos = {}
+w = {}
+train_period = 12*2
+test_period = 3
+for i in range(0, int((ret_month.shape[0] - train_period)/test_period)):
+    train = ret_month.iloc[:(train_period + i*test_period) ,:]
+    test = ret_month.iloc[(train_period + i*test_period +1):(train_period + i*test_period +1 + test_period)  ,:]
+    cov = train.cov()
+    drawdown = -HRP.mdd(train)
+    dist = np.zeros((drawdown.shape[0],drawdown.shape[0]))
+    for h in range(drawdown.shape[0]):
+        for k in range(drawdown.shape[0]):
+            dist[h,k] = np.abs(drawdown.iloc[h] - drawdown.iloc[k])
+    dist = pd.DataFrame(dist, columns = drawdown.index, index = drawdown.index)     
+    link = sch.linkage(dist, 'single')
+    sortIx = HRP.getQuasiDiag(link)
+    sortIx= corr.index[sortIx].tolist()
+    df0 = corr.loc[sortIx, sortIx]
+    hrp = pd.DataFrame(HRP.getRecBipart(cov, sortIx, mean)).T
+    hrp[np.abs(hrp)>1] = 1
+    hrp = hrp/hrp.sum(axis = 1)[0]
+    w[i] = hrp.T
+    hrp.index= ['weight']
+    test = pd.concat([test, hrp],join = 'inner')
+    oos[i] = pd.DataFrame(np.array(test.iloc[-1,:])*test.iloc[:-1,:]).sum(axis = 1)
+    
+    
+oos_test = pd.DataFrame(oos[0]).rename(columns = {0:'ret'})
+weights = pd.DataFrame(w[0]).rename(columns = {0: ret_month.index[train_period + 1]})
+
+
+for key in oos.keys():
+    if key != 0:
+        oos_test = pd.concat([oos_test,pd.DataFrame(oos[key]).rename(columns = {0:'ret'})])
+        weights = weights.merge(pd.DataFrame(w[key]).rename(columns = {0: ret_month.index[train_period + key*test_period + 1]}), left_index =  True, right_index = True)
+#plot out of sample performance
+oos_test = oos_test.sort_index()
+plt.plot(np.exp(oos_test.cumsum()))
+plt.xticks(rotation = 60)
+#plot weights
+weights.T.plot(figsize = (20,8))
+
+
+>>>>>>> origin/master

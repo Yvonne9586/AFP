@@ -79,7 +79,7 @@ plt.show()
 oos = {}
 w = {}
 train_period = 24
-test_period = 5
+test_period = 3
 for i in range(0, int((ret_month.shape[0] - train_period)/test_period)):
     train = ret_month.iloc[i*test_period:(train_period + i*test_period) ,:]
     test = ret_month.iloc[(train_period + i*test_period +1):(train_period + i*test_period +1 + test_period)  ,:]

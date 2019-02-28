@@ -30,14 +30,32 @@ import glob
 #this is colins change
 
 # process data from GFD
-allFiles = glob.glob("GFD/*.csv")
+# allFiles = glob.glob("data/Tier1&2/*.csv")
+# idx_dict = {}
+# for file_ in allFiles:
+#     idx = file_.split('/')[-1].split('.csv')[0]
+#     df = pd.read_csv(file_, index_col='Date', skiprows=2)['Close']
+#     df.index = pd.DatetimeIndex(df.index)
+#     df = df[~df.index.duplicated(keep='first')]
+#     idx_dict[idx] = df
+# idx_df = pd.concat(idx_dict, axis=1)
+# idx_df.to_csv("data/gfd.csv")
+# idx_df.resample('M').last().to_csv("data/gfd_monthly.csv")
+# returns = idx_df.resample('M').last().pct_change()
+
+# Tier 3 data
+allFiles = glob.glob("data/Tier3/*.csv")
 idx_dict = {}
 for file_ in allFiles:
     idx = file_.split('/')[-1].split('.csv')[0]
-    df = pd.read_csv(file_, index_col='Date', skiprows=2)['Close']
+    df = pd.read_csv(file_, index_col=0)
     df.index = pd.DatetimeIndex(df.index)
     df = df[~df.index.duplicated(keep='first')]
     idx_dict[idx] = df
 idx_df = pd.concat(idx_dict, axis=1)
-idx_df.loc['1981/05/26':, :].resample('M').last().to_csv("data/gfd_monthly.csv")
-returns = idx_df.resample('M').last().pct_change()
+idx_df.columns = ['BAB', 'CS', 'UMD_Large', 'UMD_Small']
+tier1_df = pd.read_csv("data/gfd_monthly.csv", index_col='Date')
+tier1_df.index = pd.DatetimeIndex(tier1_df.index)
+combine_df = pd.merge(tier1_df, idx_df, left_index=True, right_index=True, how='left')
+combine_df.to_csv("data/combined_data.csv")
+print(combine_df.head().to_string())

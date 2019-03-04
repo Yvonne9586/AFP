@@ -11,6 +11,8 @@ import datetime
 import os
 #os.chdir('C:/UCB/AFP/data')
 from scipy.stats import skew , kurtosis
+from sklearn.linear_model import LinearRegression
+from scipy.spatial.distance import cdist
 
 #############################################
 
@@ -71,7 +73,6 @@ def getRecBipart(cov, sortIx, mean):
 
 
 #moving window clustering on drawdown (expanding window)
-from scipy.spatial.distance import cdist
 
 
 #adjusted sharpe ratio
@@ -107,10 +108,23 @@ def turnover(weights):
 def SSPW(weights):
     return np.sum(np.sum(weights**2))/weights.shape[1]
     
+def beta_convexity(asset, useq):
+    useq_pos = pd.DataFrame({'USEq_pos':[0 if useq[i]<0 else useq[i] for i in range(useq.shape[0])]})
+    useq_neg = pd.DataFrame({'USEq_neg':[0 if useq[i]>0 else useq[i] for i in range(useq.shape[0])]})
+    data = pd.concat([asset,pd.DataFrame(np.ones(asset.shape[0])) ,useq_pos, useq_pos**2, useq_neg, useq_neg**2], join = 'inner', axis = 1)
+    data = data.dropna()
+    reg = LinearRegression().fit(data.iloc[:,1:],data.iloc[:,0])
+    r2 = reg.score(data.iloc[:,1:],data.iloc[:,0])
+    return reg.coef_,r2
 
 
-
-
-
+def window_beta4(ret_month):
+    beta = {}
+    r2 = {}
+    for asset in ret_month.columns[1:]:
+        if asset!='USEq':
+            beta[asset] = beta_convexity(ret_month[asset], ret_month['USEq'])[0][3]
+            r2 = beta_convexity(ret_month[asset], ret_month['USEq'])[1]
+    return beta,r2
 
 

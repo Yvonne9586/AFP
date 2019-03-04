@@ -21,9 +21,9 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, dra
                 dist[h, k] = np.abs(drawdown.iloc[h] - drawdown.iloc[k])
         dist = pd.DataFrame(dist, columns=drawdown.index, index=drawdown.index)
     elif measure == 'corr':
-        dist = ((1 - corr_matrix / 2.)) ** .5
+        dist = ((1 - corr_matrix) / 2.) ** .5
     else:
-        dist = ((1 - corr_matrix / 2.)) ** .5
+        dist = ((1 - corr_matrix) / 2.) ** .5
 
     link = sch.linkage(dist, 'single')
     sortIx = HRP.getQuasiDiag(link)

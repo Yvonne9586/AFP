@@ -205,6 +205,7 @@ oos_test = oos_test.sort_index()
 plt.plot(oos_test.cumsum())
 plt.xticks(rotation = 60)
 #plot weights
+weights = weights.fillna(method = 'ffill')
 weights.plot(figsize = (25,10),colormap='tab20')
 
 ######Equity Betas#######
@@ -227,8 +228,58 @@ pd.DataFrame.from_dict(r2, orient = 'index').plot()
 ret_month[(ret_month.index>datetime.datetime(1913,1,1))&(ret_month.index<datetime.datetime(1915,1,1))].plot()
 
 
-###combine everything together, high dimension hrp####
+###equity beta hrp####
 
+oos = {}
+w = {}
+train_period = 12*10
+test_period = 12
+ret_month = ret_month[ret_month.index>datetime.datetime(1871,3,1)]
+for i in range(0, int((ret_month.shape[0] - train_period)/test_period)):
+    train = ret_month.iloc[:(train_period + i*test_period) ,:]
+    train = train.dropna(axis = 1, how = 'all')
+    #train = train.iloc[:,(train != 0).any().values]
+    test = ret_month.iloc[(train_period + i*test_period +1):(train_period + i*test_period +1 + test_period)  ,:]
+    if train.shape[1]>1:
+        cov = train.cov()
+        corr = train.corr()
+        beta = beta4_standardized(train)
+        beta = beta.dropna()
+        dist = np.zeros((beta.shape[0],beta.shape[0]))
+        for h in range(beta.shape[0]):
+            for k in range(beta.shape[0]):
+                dist[h,k] = np.abs(beta.iloc[h] - beta.iloc[k])
+        dist = pd.DataFrame(dist, columns = beta.index, index = beta.index)     
+        link = sch.linkage(dist, 'single')
+        sortIx = HRP.getQuasiDiag(link)
+        sortIx= corr.index[sortIx].tolist()
+        df0 = corr.loc[sortIx, sortIx]
+        hrp = pd.DataFrame(HRP.getRecBipart(cov, sortIx, mean)).T
+        hrp[np.abs(hrp)>1] = 1
+        hrp = hrp/hrp.sum(axis = 1)[0]
+        w[i] = hrp.T
+        hrp.index= ['weight']
+        test = pd.concat([test, hrp],join = 'inner')
+        oos[i] = pd.DataFrame(np.array(test.iloc[-1,:])*test.iloc[:-1,:]).sum(axis = 1)
+    
+    
+oos_test = pd.DataFrame(oos[list(oos.keys())[0]]).rename(columns = {0:'ret'})
+weights = pd.DataFrame(w[list(w.keys())[0]]).rename(columns = {0: ret_month.index[train_period + 1]}).T
+
+
+for key in oos.keys():
+    if key != list(oos.keys())[0]:
+        oos_test = pd.concat([oos_test,pd.DataFrame(oos[key]).rename(columns = {0:'ret'})])
+for key in w.keys():
+    if key != list(w.keys())[0]:      
+        weights = pd.concat([weights,w[key].T]).rename(index = {0: ret_month.index[train_period + key*test_period + 1]})
+#plot out of sample performance
+oos_test = oos_test.sort_index()
+plt.plot(oos_test.cumsum())
+plt.xticks(rotation = 60)
+#plot weights
+weights = weights.fillna(method = 'ffill')
+weights.plot(figsize = (25,10),colormap='tab20')
 
 
 

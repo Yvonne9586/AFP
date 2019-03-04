@@ -214,9 +214,6 @@ def turnover(weights):
 
 def SSPW(weights):
     return np.sum(np.sum(weights**2))/weights.shape[1]
-    
-
-
 
 
 

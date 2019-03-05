@@ -2,13 +2,20 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from arch import arch_model
-import HRP
 import scipy.cluster.hierarchy as sch
+import os
+os.chdir('C:/UCB/AFP/newAFP/AFP')
+import datetime
+import HRP
 
-LOOKBACK_PERIOD = 2*252
+
+LOOKBACK_PERIOD = 2*12
 
 
-def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, drawdown_df=None, measure='corr'):
+def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, 
+                          drawdown_df=None,
+                          beta_df=None,
+                          measure='corr'):
     date = x.index.values[0][0]
     corr_matrix = corr_forecast_df.loc[date]
     cov_matrix = cov_forecast_df.loc[date]
@@ -22,6 +29,13 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, dra
         dist = pd.DataFrame(dist, columns=drawdown.index, index=drawdown.index)
     elif measure == 'corr':
         dist = ((1 - corr_matrix) / 2.) ** .5
+    elif measure == 'beta':
+        beta = beta_df.loc[date]
+        dist = np.zeros((beta.shape[0],beta.shape[0]))
+        for h in range(beta.shape[0]):
+            for k in range(beta.shape[0]):
+                dist[h,k] = np.abs(beta.iloc[h] - beta.iloc[k])
+        dist = pd.DataFrame(dist, columns = beta.index, index = beta.index)     
     else:
         dist = ((1 - corr_matrix) / 2.) ** .5
 
@@ -46,7 +60,7 @@ def calc_weights(method='risk_parity',
         inv_vol_sum = inv_vol.sum(axis=1)
         weights = inv_vol.apply(lambda x: x/inv_vol_sum, axis=0)
         return weights
-    elif method == 'hrp':
+    elif method == 'hrp_cov':
         return_mean = returns_df.rolling(LOOKBACK_PERIOD).mean()
         w = corr_forecast_df.groupby(level=0).apply(
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean)).unstack(level=-1)
@@ -55,13 +69,23 @@ def calc_weights(method='risk_parity',
     elif method == 'hrp_dd':
         return_mean = returns_df.rolling(LOOKBACK_PERIOD).mean()
         # can be changed to expanding if want to take into account all data
-        drawdown_df = returns_df.expanding(LOOKBACK_PERIOD).apply(lambda x: -HRP.mdd(x), raw=True)
+        drawdown_df = returns_df.expanding(LOOKBACK_PERIOD).apply(lambda x: -HRP.mdd(x), raw = True)
 
         w = corr_forecast_df.groupby(level=0).apply(
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, drawdown_df=drawdown_df,
                                             measure='drawdown')).unstack(level=-1)
-
         return w
+    
+    elif method == 'hrp_beta':
+        beta = returns_df.rolling(LOOKBACK_PERIOD).apply(lambda x: HRP.beta4_standardized(x), raw = False)
+        beta = beta.dropna()
+        
+        w = corr_forecast_df.groupby(level=0).apply(
+            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, beta_df=beta,
+                                            measure='beta')).unstack(level=-1)
+        
+        return w
+    
 
 
 def get_data(file_location):
@@ -69,7 +93,14 @@ def get_data(file_location):
     df = pd.read_csv(file_location, index_col=0)#.dropna()
     df.index = pd.to_datetime(df.index)
     df = df.sort_index(ascending=True)
-    return df
+    #keep the data since ukequity available
+    df = df[df.index > datetime.datetime(1933,7,1)]
+    df_ret = df.pct_change()
+    df_ret[['BAB','UMD_Large','UMD_Small']] = df[['BAB','UMD_Large','UMD_Small']]
+    #data check
+    df.plot(figsize = (15,10), colormap='tab20')
+    df_ret.plot(figsize = (15,10),colormap='tab20')
+    return df_ret
 
 
 def calc_rebal(x, portfolio_df, index_df, weights_df, txn_cost):
@@ -168,7 +199,7 @@ def calc_results_matrix(index_df,
 
 def calc_vol_forecast(returns_df, method='r_vol'):
     if method == 'r_vol':
-        r_vol = returns_df.rolling(LOOKBACK_PERIOD).std() * (252 ** 0.5)
+        r_vol = returns_df.rolling(LOOKBACK_PERIOD).std() * (12 ** 0.5)
         r_var = r_vol*r_vol
         return r_vol, r_var
     elif method == 'garch':
@@ -177,9 +208,9 @@ def calc_vol_forecast(returns_df, method='r_vol'):
         for index in returns_df.columns:
             returns_index = returns_df[index]
             am = arch_model(returns_index, vol='Garch', p=1, o=0, q=1, dist='Normal')
-            res = am.fit(last_obs=returns_index.index[252])
-            tmp = res.forecast(horizon=20)
-            var_proj = tmp.variance.mean(axis=1) * 252
+            res = am.fit(last_obs=returns_index.index[12])
+            tmp = res.forecast(horizon=1)
+            var_proj = tmp.variance.mean(axis=1) * 12
             std_proj = np.power(var_proj, 0.5)
             r_vol[index] = std_proj
             r_var[index] = var_proj
@@ -191,7 +222,7 @@ def calc_cor_forecast(returns_df, method='r_cor'):
     if method == 'r_cor':
 
         r_corr = returns_df.rolling(LOOKBACK_PERIOD).corr()
-        r_cov = returns_df.rolling(LOOKBACK_PERIOD).cov() * (252 ** 0.5)
+        r_cov = returns_df.rolling(LOOKBACK_PERIOD).cov() * (12 ** 0.5)
         return r_corr, r_cov
 
     return None, None
@@ -199,17 +230,32 @@ def calc_cor_forecast(returns_df, method='r_cor'):
 
 def main():
     # get index data
-    index_df = get_data("data/indexes.csv")
-    index_df = index_df.loc[:, ['US10Y', 'RTY INDEX', 'SPX INDEX', 'GOLD']].dropna()
+    index_df = get_data("data/combined_data_new.csv")
+    #index_df = index_df.loc[:, ['US10Y', 'RTY INDEX', 'SPX INDEX', 'GOLD']].dropna()
     # get percentage change
-    index_change_df = index_df.pct_change().dropna()
+    #index_change_df = index_df.dropna()
+    index_change_df = index_df
 
     # forecast volatility and variance
     vol_forecast_df, var_forecast_df = calc_vol_forecast(index_change_df, method='r_vol')
     cor_forecast_df, cov_forecast_df = calc_cor_forecast(index_change_df, method='r_cor')
-
+    ####################################dd hrp#############################################
     # calculate weights
     weights_df = calc_weights(method='hrp_dd',
+                              vol_forecast_df=vol_forecast_df,
+                              corr_forecast_df=cor_forecast_df,
+                              cov_forecast_df=cov_forecast_df,
+                              returns_df=index_change_df)
+
+    # calc rebal
+    df_rebal = calc_results_matrix(index_df=index_df, weights_df=weights_df, rebal_period='M')
+    total_return = df_rebal.sum(axis=1).rename('Risk Parity')
+
+    # calc metrics
+    results_metrics = calc_metrics('Risk parity', total_return, weights_df)
+    ###################################beta hrp#############################################
+    # calculate weights
+    weights_df = calc_weights(method='hrp_beta',
                               vol_forecast_df=vol_forecast_df.dropna(),
                               corr_forecast_df=cor_forecast_df.dropna(),
                               cov_forecast_df=cov_forecast_df.dropna(),
@@ -221,7 +267,6 @@ def main():
 
     # calc metrics
     results_metrics = calc_metrics('Risk parity', total_return, weights_df)
-
     # output dfs
     # df_rebal.to_csv('data/rebal.csv')
     # weights_df.to_csv('data/weights.csv')

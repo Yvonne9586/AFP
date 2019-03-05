@@ -194,6 +194,7 @@ def calc_results_matrix(index_df,
     # setup the portfolio as the weights df and resample at the desired rebal_period
     portfolio_df = weights_df.resample(rebal_period).last()
     # bit of a hack in using rolling
+    p_df_s = portfolio_df.iloc[:,0]
     portfolio_df.rolling(2).apply(lambda x: calc_rebal(x, portfolio_df, index_df, weights_df, txn_cost), raw=False)
 
     return portfolio_df
@@ -322,21 +323,21 @@ def main():
     total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "hrp_dd", " tier 3")
     print("========done with hrp with mdd=========")
     # calculate benchmark 3: traditional risk-parity with tier 2
-    total_return, results_metrics = get_dynamic_result(tier2_df, total_return, results_metrics, "risk_parity", " tier 2")
+    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "risk_parity", " tier 2")
     print("========done with traditional risk-parity with tier 2 assets=========")
     # calculate equal risk weight: equal risk-parity with tier 2
-    total_return, results_metrics = get_dynamic_result(tier2_df, total_return, results_metrics, "equal_risk_parity", " tier 2")
+    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "equal_risk_parity", " tier 2")
     print("========done with traditional risk-parity with tier 2 assets=========")
 
-    # calculate benchmark 4: traditional risk-parity with tier 3
-    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "risk_parity", " tier 3")
-    print("========done with traditional risk-parity with tier 3 assets=========")
+#    # calculate benchmark 4: traditional risk-parity with tier 3
+#    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "risk_parity", " tier 3")
+#    print("========done with traditional risk-parity with tier 3 assets=========")
     
     # calculate benchmark 1: 60/40 equity_bond
-    total_return, results_metrics = get_static_benchmark(tier1_df, total_return, results_metrics, "equity_bond", " tier 1")
+    total_return, results_metrics = get_static_benchmark(tier3_df, total_return, results_metrics, "equity_bond", " tier 1")
     print("========done with 60/40=========")
     # calculate benchmark 2: all weather 
-    total_return, results_metrics = get_static_benchmark(tier2_df, total_return, results_metrics, "all_weather", " tier 2")
+    total_return, results_metrics = get_static_benchmark(tier3_df, total_return, results_metrics, "all_weather", " tier 2")
     print("========done with all weather=========")
     
     # display/plot results

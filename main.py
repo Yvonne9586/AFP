@@ -2,13 +2,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from arch import arch_model
+import hrp
 import scipy.cluster.hierarchy as sch
-
 import scipy.optimize
-
-MONTH = 12
-DAY = 252
-LOOKBACK_PERIOD = 2 * MONTH
 
 
 def F(w, cov_matrix):
@@ -35,21 +31,19 @@ def calc_eq_risk_parity_weights(x, cov_forecast_df):
     return w.x
 
 
-def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean,
-                          drawdown_df=None,
-                          beta_df=None,
-                          measure='corr'):
+def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=None, measure='corr'):
     date = x.index.values[0][0]
     corr_matrix = corr_forecast_df.loc[date]
     cov_matrix = cov_forecast_df.loc[date]
     mean_matrix = return_mean.loc[date]
-    if measure == 'drawdown':
-        drawdown = drawdown_df.loc[date]
-        dist = np.zeros((drawdown.shape[0], drawdown.shape[0]))
-        for h in range(drawdown.shape[0]):
-            for k in range(drawdown.shape[0]):
-                dist[h, k] = np.abs(drawdown.iloc[h] - drawdown.iloc[k])
-        dist = pd.DataFrame(dist, columns=drawdown.index, index=drawdown.index)
+    if measure in ['drawdown', 'beta', 'value', 'str_change']:
+        obj = obj_df.loc[date]
+        dist = np.zeros((obj.shape[0], obj.shape[0]))
+        for h in range(obj.shape[0]):
+            for k in range(obj.shape[0]):
+                dist[h, k] = np.abs(obj.iloc[h] - obj.iloc[k])
+        dist = pd.DataFrame(dist, columns=obj.index, index=obj.index)
+
     elif measure == 'corr':
         dist = ((1 - corr_matrix) / 2.) ** .5
     elif measure == 'beta':
@@ -63,11 +57,11 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean,
         dist = ((1 - corr_matrix) / 2.) ** .5
 
     link = sch.linkage(dist, 'single')
-    sortIx = HRP.getQuasiDiag(link)
+    sortIx = hrp.getQuasiDiag(link)
     sortIx = corr_matrix.index[sortIx].tolist()
     df0 = corr_matrix.loc[sortIx, sortIx]
 
-    hrp = HRP.getRecBipart(cov_matrix, sortIx, mean_matrix)
+    hrp = hrp.getRecBipart(cov_matrix, sortIx, mean_matrix)
     hrp[np.abs(hrp) > 1] = 1
     hrp = hrp / hrp.sum()
     return hrp
@@ -77,7 +71,8 @@ def calc_weights(method='risk_parity',
                  vol_forecast_df=None,
                  corr_forecast_df=None,
                  cov_forecast_df=None,
-                 returns_df=None):
+                 returns_df=None,
+                 LOOKBACK_PERIOD=60):
     if method == 'risk_parity':
         inv_vol = 1/vol_forecast_df
         inv_vol_sum = inv_vol.sum(axis=1)
@@ -99,22 +94,22 @@ def calc_weights(method='risk_parity',
     elif method == 'hrp_dd':
         return_mean = returns_df.rolling(LOOKBACK_PERIOD).mean()
         # can be changed to expanding if want to take into account all data
-        drawdown_df = returns_df.expanding(LOOKBACK_PERIOD).apply(lambda x: -HRP.mdd(x), raw = True)
+        drawdown_df = returns_df.expanding(LOOKBACK_PERIOD).apply(lambda x: -hrp.mdd(x), raw=True)
 
         w = corr_forecast_df.groupby(level=0).apply(
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, drawdown_df=drawdown_df,
                                             measure='drawdown')).unstack(level=-1)
         return w
 
-    elif method == 'hrp_beta':
-        beta = returns_df.rolling(LOOKBACK_PERIOD).apply(lambda x: HRP.beta4_standardized(x), raw = False)
-        beta = beta.dropna()
+    # elif method == 'hrp_beta':
+    #     beta = returns_df.rolling(LOOKBACK_PERIOD).apply(lambda x: HRP.beta4_standardized(x), raw = False)
+    #     beta = beta.dropna()
 
-        w = corr_forecast_df.groupby(level=0).apply(
-            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, beta_df=beta,
-                                            measure='beta')).unstack(level=-1)
+    #     w = corr_forecast_df.groupby(level=0).apply(
+    #         lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, beta_df=beta,
+    #                                         measure='beta')).unstack(level=-1)
 
-        return w
+    #     return w
 
 
 
@@ -133,14 +128,14 @@ def get_data(file_location):
     return df_ret
 
 
-def calc_rebal(x, portfolio_df, index_df, weights_df, txn_cost):
+def calc_rebal(x, portfolio_df, returns_df, weights_df, txn_cost):
     prev_period = x.index[0]
     curr_period = x.index[1]
 
     # calculate percentage increase over the period
-    prev_index_values = index_df.loc[:prev_period, :].iloc[-1]
-    curr_index_values = index_df.loc[:curr_period, :].iloc[-1]
-    period_return = curr_index_values/prev_index_values
+    # prev_index_values = index_df.loc[:prev_period, :].iloc[-1]
+    # curr_index_values = index_df.loc[:curr_period, :].iloc[-1]
+    period_return = returns_df.loc[curr_period, :] + 1
 
     # apply to portfolio
     prev_port_values = portfolio_df.loc[:prev_period, :].iloc[-1]
@@ -210,7 +205,7 @@ def calc_metrics(title, car, weights):
     return pd.DataFrame(results, index=[title])
 
 
-def calc_results_matrix(index_df,
+def calc_results_matrix(returns_df,
                         weights_df,
                         rebal_period='M',
                         txn_cost=0.001,
@@ -228,10 +223,10 @@ def calc_results_matrix(index_df,
     return portfolio_df
 
 
-def calc_vol_forecast(returns_df, method='r_vol'):
+def calc_vol_forecast(returns_df, method='r_vol', LOOKBACK_PERIOD=60):
     if method == 'r_vol':
-        r_vol = returns_df.rolling(LOOKBACK_PERIOD).std() * (MONTH ** 0.5)
-        r_var = r_vol * r_vol
+        r_vol = returns_df.rolling(LOOKBACK_PERIOD).std() * (12 ** 0.5)
+        r_var = r_vol*r_vol
         return r_vol, r_var
     elif method == 'garch':
         r_vol = pd.DataFrame(index=returns_df.index, columns=returns_df.columns)
@@ -239,9 +234,9 @@ def calc_vol_forecast(returns_df, method='r_vol'):
         for index in returns_df.columns:
             returns_index = returns_df[index]
             am = arch_model(returns_index, vol='Garch', p=1, o=0, q=1, dist='Normal')
-            res = am.fit(last_obs=returns_index.index[MONTH])
+            res = am.fit(last_obs=returns_index.index[12])
             tmp = res.forecast(horizon=20)
-            var_proj = tmp.variance.mean(axis=1) * MONTH
+            var_proj = tmp.variance.mean(axis=1) * 12
             std_proj = np.power(var_proj, 0.5)
             r_vol[index] = std_proj
             r_var[index] = var_proj
@@ -249,15 +244,14 @@ def calc_vol_forecast(returns_df, method='r_vol'):
     return None, None
 
 
-def calc_cor_forecast(returns_df, method='r_cor'):
+def calc_cor_forecast(returns_df, method='r_cor', LOOKBACK_PERIOD=60):
     if method == 'r_cor':
 
         r_corr = returns_df.rolling(LOOKBACK_PERIOD).corr()
-        r_cov = returns_df.rolling(LOOKBACK_PERIOD).cov() * (MONTH ** 0.5)
+        r_cov = returns_df.rolling(LOOKBACK_PERIOD).cov() * (12 ** 0.5)
         return r_corr, r_cov
 
     return None, None
-
 
 
 def get_static_benchmark(tier_df, total_return, results_metrics, method, tier_name):
@@ -286,89 +280,162 @@ def get_dynamic_result(tier_df, total_return, results_metrics, method, tier_name
     # get percentage change: price -> return
     tier_change_df = tier_df.pct_change().dropna()
 
-    # forecast volatility and variance
-    vol_forecast_df, var_forecast_df = calc_vol_forecast(tier_change_df, method='r_vol')
-    cor_forecast_df, cov_forecast_df = calc_cor_forecast(tier_change_df, method='r_cor')
 
-    # calculate weights
-    weights_df = calc_weights(method=method,
-                              vol_forecast_df=vol_forecast_df.dropna(),
-                              corr_forecast_df=cor_forecast_df.dropna(),
-                              cov_forecast_df=cov_forecast_df.dropna(),
-                              returns_df=tier_change_df.dropna())
+def calc_final_results(total_return,
+                       results_metrics,
+                       vol_forecast_df=None,
+                       cor_forecast_df=None,
+                       cov_forecast_df=None,
+                       returns_df=None,
+                       weights_df=pd.DataFrame(), 
+                       method=''):
+    if len(weights_df) == 0:
+        weights_df = calc_weights(method=method,
+                              vol_forecast_df=vol_forecast_df,
+                              corr_forecast_df=corr_forecast_df,
+                              cov_forecast_df=cov_forecast_df,
+                              returns_df=returns_df)
+    rebal_df = calc_results_matrix(return_df=return_df, weights_df=weights_df, rebal_period='M')
+    total_return = pd.concat([total_return, rebal_df.sum(axis=1).rename(method)], axis=1).dropna()
+    results_metrics = pd.concat([results_metrics, calc_metrics(method, total_return[method], weights_df)], axis=0)
+    return None
 
 
-    # calc result
-    df_rebal = calc_results_matrix(index_df=tier_df, weights_df=weights_df, rebal_period='M')
-    total_return = pd.concat([total_return, df_rebal.sum(axis=1).rename(method + tier_name)], axis=1).dropna()
-    results_metrics = pd.concat([results_metrics, calc_metrics(method, total_return[method + tier_name], weights_df)], axis=0)
-
-    # output dfs
-    # df_rebal.to_csv('data/rebal.csv')
-    # weights_df.to_csv('data/weights.csv')
-    # vol_forecast_df.to_csv('data/vol_forecast.csv')
-    return total_return, results_metrics
-
-def get_tiers(file_path):
-    """split all the data from combined dataset
-    into different tiers; every column is price data, not return"""
-    combined_data = get_data(file_path)
-    tier1 = ["USBond10Y",
-             "USEq"]
-    tier2 = ["GermanBond10Y",
-             "GermanyEq",
-             "Gold",
-             "JapanBond10Y",
-             "JapanEq",
-             "Oil",
-             "TRCommodity",
-             "UKEq",
-             "USBond10Y",
-             "USEq"]
-    tier3 = ["GermanBond10Y",
-             "GermanyEq",
-             "Gold",
-             "JapanBond10Y",
-             "JapanEq",
-             "Oil",
-             "TRCommodity",
-             "UKEq",
-             "USBond10Y",
-             "USEq",
-             "BAB",
-             "CS",
-             "UMD_Large",
-             "UMD_Small"]
-    return combined_data.loc['1935-12-31':, tier1].dropna(),\
-            combined_data.loc['1935-12-31':, tier2].dropna(),\
-            combined_data.loc['1997-12-31':, tier3].dropna()
+# def get_tiers(file_path):
+#     """split all the data from combined dataset
+#     into different tiers; every column is price data, not return"""
+#     combined_data = get_data(file_path)
+#     tier1 = ["USBond10Y",
+#              "USEq"]
+#     tier2 = ["GermanBond10Y",
+#              "GermanyEq",
+#              "Gold",
+#              "JapanBond10Y",
+#              "JapanEq",
+#              "Oil",
+#              "TRCommodity",
+#              "UKEq",
+#              "USBond10Y",
+#              "USEq"]
+#     tier3 = ["GermanBond10Y",
+#              "GermanyEq",
+#              "Gold",
+#              "JapanBond10Y",
+#              "JapanEq",
+#              "Oil",
+#              "TRCommodity",
+#              "UKEq",
+#              "USBond10Y",
+#              "USEq",
+#              "BAB",
+#              "CS",
+#              "UMD_Large",
+#              "UMD_Small"]
+#     return combined_data.loc['1935-12-31':, tier1].dropna(),\
+#             combined_data.loc['1935-12-31':, tier2].dropna(),\
+#             combined_data.loc['1997-12-31':, tier3].dropna()
 
 
 def main():
+    # get Tier data
+    ret_df = get_data("data/combined_dataset_new.csv").pct_change()
+    tier1 = ret_df.loc[:, ['USEq', 'USBond10Y']].dropna()
+    tier2 = ret_df.loc[:, 'GermanBond10Y':'USEq'].dropna()
+    tier3 = ret_df.dropna()
     total_return = pd.DataFrame()
     results_metrics = pd.DataFrame()
-    tier1_df, tier2_df, tier3_df = get_tiers("data/combined_dataset_new.csv")
 
+    ################## Benchmark ##################
+    # benchmark 1 - 60/40
     # calculate investment portfolio: HRP with mdd
-    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "hrp_dd", " tier 3")
+    total_return, results_metrics = get_dynamic_result(tier3, total_return, results_metrics, "hrp_dd", " tier 3")
     print("========done with hrp with mdd=========")
     # calculate benchmark 3: traditional risk-parity with tier 2
-    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "risk_parity", " tier 2")
+    total_return, results_metrics = get_dynamic_result(tier3, total_return, results_metrics, "risk_parity", " tier 2")
     print("========done with traditional risk-parity with tier 2 assets=========")
     # calculate equal risk weight: equal risk-parity with tier 2
-    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "equal_risk_parity", " tier 2")
+    total_return, results_metrics = get_dynamic_result(tier3, total_return, results_metrics, "equal_risk_parity", " tier 2")
     print("========done with traditional risk-parity with tier 2 assets=========")
 
     # calculate benchmark 4: traditional risk-parity with tier 3
-    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "risk_parity", " tier 3")
+    total_return, results_metrics = get_dynamic_result(tier3, total_return, results_metrics, "risk_parity", " tier 3")
     print("========done with traditional risk-parity with tier 3 assets=========")
 
     # calculate benchmark 1: 60/40 equity_bond
-    total_return, results_metrics = get_static_benchmark(tier3_df, total_return, results_metrics, "equity_bond", " tier 1")
+    total_return, results_metrics = get_static_benchmark(tier3, total_return, results_metrics, "equity_bond", " tier 1")
     print("========done with 60/40=========")
     # calculate benchmark 2: all weather
-    total_return, results_metrics = get_static_benchmark(tier2_df, total_return, results_metrics, "all_weather", " tier 2")
+    total_return, results_metrics = get_static_benchmark(tier2, total_return, results_metrics, "all_weather", " tier 2")
     print("========done with all weather=========")
+
+    # benchmark 2 - All Weather
+    aw_df = tier2.loc[:, ['Gold', 'TRCommodity', 'USBond10Y', 'USEq']].dropna().pct_change()
+    weights_dict = {'Gold':0.075, 'TRCommodity':0.075, 'USBond10Y':0.55, 'USEq':0.3}
+    weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
+    # weights_aw.columns = aw_df.columns
+    # aw_rebal = calc_results_matrix(return_df=aw_df, weights_df=weights_aw.iloc[1:, :], rebal_period='M')
+    # # all-weather results
+    # total_return = pd.concat([total_return, aw_rebal.sum(axis=1).rename('All Weather')], axis=1).dropna()
+    # results_metrics = pd.concat([results_metrics, calc_metrics('All Weather', total_return['All Weather'], weights_aw)], axis=0)
+    _ = calc_final_results(total_return,
+                           results_metrics,
+                           weights_df=weights_aw, 
+                           method='all-weather')
+
+    # benchmark 3 - Risk Parity Tier 2
+
+    # benchmark 4 - Risk Parity Tier 3
+
+    ################## HRP ##################
+    # forecast volatility and variance
+    vol_forecast_df, var_forecast_df = calc_vol_forecast(tier2, method='r_vol')
+    cor_forecast_df, cov_forecast_df = calc_cor_forecast(tier2, method='r_cor')
+
+    # HRP - Covariance
+    _ = calc_final_results(total_return,
+                           results_metrics,
+                           vol_forecast_df=vol_forecast_df.dropna(),
+                           corr_forecast_df=cor_forecast_df.dropna(),
+                           cov_forecast_df=cov_forecast_df.dropna(),
+                           returns_df=tier2,
+                           method='hrp')
+
+    # HRP - Maximum Drawdown
+    _ = calc_final_results(total_return,
+                           results_metrics,
+                           vol_forecast_df=vol_forecast_df.dropna(),
+                           corr_forecast_df=cor_forecast_df.dropna(),
+                           cov_forecast_df=cov_forecast_df.dropna(),
+                           returns_df=tier2,
+                           method='hrp_dd')
+
+    # HRP - Downside Beta
+
+    # HRP - Values
+
+    # HRP Structural Change
+
+    # # get index data
+    # index_df = get_data("data/indexes.csv")
+    # index_df = index_df.loc[:, ['US10Y', 'RTY INDEX', 'SPX INDEX', 'GOLD']].dropna()
+    # # get percentage change
+    # index_change_df = index_df.pct_change().dropna()
+
+    
+
+    # # calculate weights
+    # weights_df = calc_weights(method='hrp_dd',
+    #                           vol_forecast_df=vol_forecast_df.dropna(),
+    #                           corr_forecast_df=cor_forecast_df.dropna(),
+    #                           cov_forecast_df=cov_forecast_df.dropna(),
+    #                           returns_df=index_change_df.dropna())
+
+    # # calc rebal
+    # df_rebal = calc_results_matrix(index_df=index_df, weights_df=weights_df, rebal_period='M')
+    # total_return = df_rebal.sum(axis=1).rename('Risk Parity')
+
+    # # calc metrics
+    # results_metrics = calc_metrics('Risk parity', total_return, weights_df)
 
     # display/plot results
     plt.rcParams["figure.figsize"] = (8, 5)

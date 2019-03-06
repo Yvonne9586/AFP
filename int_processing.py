@@ -81,6 +81,43 @@ def calc_downside_beta(ret_df, lookback_period=60):
     downside_beta = ret_df.rolling(lookback_period).apply(lambda x: calc_betas(x, ret_df, mkt_df), raw=False)#.unstack(level=-1)
     return downside_beta
 
+import statsmodels.api as sm
+
+def structure_break(price_month):
+    SADF = {}
+    temp = []
+    log_price = np.log(price_month)
+    tau = 36
+    L = 4
+    log_price_dff = log_price.diff()
+    t =log_price.shape[0] - 1
+    for t0 in range(L, t - tau, 12):
+        reg_data = pd.DataFrame({
+                'dy_t':np.array(log_price_dff.iloc[(t0+1):t]),
+                'alpha':1, 
+                'y_t-1':np.array(log_price.iloc[t0:(t-1)]),
+                'dy_t-1':np.array(log_price_dff.iloc[t0:(t-1)]),
+                'dy_t-2': np.array(log_price_dff.iloc[(t0-1):(t-2)]),
+                'dy_t-3': np.array(log_price_dff.iloc[(t0-2):(t-3)]),
+                'dy_t-4': np.array(log_price_dff.iloc[(t0-3):(t-4)]),
+                'dy_t-5': np.array(log_price_dff.iloc[(t0-4):(t-5)])}, index = log_price_dff.iloc[t0+1:t,].index).dropna()
+        if reg_data.shape[0]>0:
+            reg = sm.OLS(reg_data['dy_t'],reg_data[['alpha','y_t-1','dy_t-1','dy_t-2','dy_t-3','dy_t-4','dy_t-5']]).fit()
+            r = np.zeros_like(reg.params)
+            r[1] = 1
+            T_test = reg.t_test(r)
+            temp.append(reg.params[1]/T_test.sd[0][0])
+    if len(temp)>0:
+        SADF = np.max(temp)
+    else:
+        SADF = np.nan
+    return SADF
+
+        
+def calc_structure_break(idx_df, lookback_period =  60):
+    explosiveness = idx_df.rolling(lookback_period).apply(lambda x:structure_break(x), raw = False)
+    return explosiveness
+
 
 def main():
     # Generate real returns for each asset
@@ -107,6 +144,10 @@ def main():
     #beta_df = calc_betas(ret_df)
     downside_beta = calc_downside_beta(ret_df)
     downside_beta.dropna(how='all').to_csv('int_results/downside_beta.csv')
+    
+    explosiveness = calc_structure_break(idx_df)
+    explosiveness.dropna(how='all').to_csv('int_results/structure_break.csv')
+
 
 if __name__ == "__main__":
     main()

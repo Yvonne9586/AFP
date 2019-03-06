@@ -2,9 +2,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from arch import arch_model
-import hrp
 import scipy.cluster.hierarchy as sch
 import scipy.optimize
+import hrp_helper as hrp
 
 
 def F(w, cov_matrix):
@@ -115,14 +115,7 @@ def get_data(file_location):
     df = pd.read_csv(file_location, index_col=0)#.dropna()
     df.index = pd.to_datetime(df.index)
     df = df.sort_index(ascending=True)
-    #keep the data since ukequity available
-    df = df[df.index > datetime.datetime(1933,7,1)]
-    df_ret = df.pct_change()
-    df_ret[['BAB','UMD_Large','UMD_Small']] = df[['BAB','UMD_Large','UMD_Small']]
-    #data check
-    df.plot(figsize = (15,10), colormap='tab20')
-    df_ret.plot(figsize = (15,10),colormap='tab20')
-    return df_ret
+    return df
 
 
 def calc_rebal(x, portfolio_df, returns_df, weights_df, txn_cost):
@@ -313,34 +306,34 @@ def main():
     vol_tier3, var_tier3 = calc_vol_forecast(tier3, method='r_vol')
     cor_tier3, cov_tier3 = calc_cor_forecast(tier3, method='r_cor')
 
-    ################# Benchmark ##################
-    # benchmark 1 - 60/40
-    weights_dict = {'USBond10Y': 0.4, 'USEq': 0.6}
-    weights_b1 = tier1.copy().apply(lambda x: pd.Series(tier1.columns.map(weights_dict).values), axis=1)
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier1, weights_df=weights_b1, method='60/40')
-
-    # benchmark 2 - All Weather
-    aw_df = tier2.loc[:, ['Gold', 'TRCommodity', 'USBond10Y', 'USEq']].dropna()
-    weights_dict = {'Gold':0.075, 'TRCommodity':0.075, 'USBond10Y':0.55, 'USEq':0.3}
-    weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df, weights_df=weights_aw, method='all-weather')
-
-    # benchmark 3 - Risk Parity Tier 2
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
-                       cov_forecast_df=cov_tier2, returns_df=tier2, method='risk_parity (tier2)')
-
-    # benchmark 4 - Risk Parity Tier 3
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier3, cor_forecast_df=cor_tier3,
-                       cov_forecast_df=cov_tier3, returns_df=tier3, method='risk_parity (tier3)')
-
-    # ################## HRP ##################
-    # # HRP - Covariance
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
-    #                    cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp')
+    # ################# Benchmark ##################
+    # # benchmark 1 - 60/40
+    # weights_dict = {'USBond10Y': 0.4, 'USEq': 0.6}
+    # weights_b1 = tier1.copy().apply(lambda x: pd.Series(tier1.columns.map(weights_dict).values), axis=1)
+    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier1, weights_df=weights_b1, method='60/40')
     #
-    # # HRP - Maximum Drawdown
+    # # benchmark 2 - All Weather
+    # aw_df = tier2.loc[:, ['Gold', 'TRCommodity', 'USBond10Y', 'USEq']].dropna()
+    # weights_dict = {'Gold':0.075, 'TRCommodity':0.075, 'USBond10Y':0.55, 'USEq':0.3}
+    # weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
+    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df, weights_df=weights_aw, method='all-weather')
+    #
+    # # benchmark 3 - Risk Parity Tier 2
     # total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
-    #                    cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp_dd')
+    #                    cov_forecast_df=cov_tier2, returns_df=tier2, method='risk_parity (tier2)')
+    #
+    # # benchmark 4 - Risk Parity Tier 3
+    # total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier3, cor_forecast_df=cor_tier3,
+    #                    cov_forecast_df=cov_tier3, returns_df=tier3, method='risk_parity (tier3)')
+
+    ################## HRP ##################
+    # HRP - Covariance
+    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
+                       cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp')
+
+    # HRP - Maximum Drawdown
+    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
+                       cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp_dd')
 
     # HRP - Downside Beta
 

@@ -5,13 +5,20 @@ from arch import arch_model
 import scipy.cluster.hierarchy as sch
 import scipy.optimize
 import hrp_helper as hrp
+import MC
 
 
-def F(w, cov_matrix):
+def F(w, cov_matrix, N):
     """equal risk parity forula"""
-    N = cov_matrix.shape[0]
-    return np.dot(w, np.diag(cov_matrix)) * N - np.dot(w, cov_matrix.dot(w))
+    diff = 0
+    for i in range(N):
+        diff += np.power(w[i] - (np.dot(w, np.dot(cov_matrix,w))/
+                          (N * np.dot(cov_matrix, w)[i])),2)
+    return diff
 
+#w = [2, 3]
+#cov_matrix = pd.DataFrame([[4,5],[6,7]])
+#F(w, cov_matrix)
 
 def calc_eq_risk_parity_weights(x, cov_forecast_df):
     """calculate weight for each asset,
@@ -22,12 +29,12 @@ def calc_eq_risk_parity_weights(x, cov_forecast_df):
     cov_matrix = cov_forecast_df.loc[date]
     N = cov_matrix.shape[0]
     para_init = np.ones(N)/N
-#    bounds = ((-1.0, 1.0),) * N
+    bounds = ((0, 1.0),) * N  # long only
     w = scipy.optimize.minimize(F, x0=para_init,
-                                args=(cov_matrix),
+                                args=(cov_matrix.values, N),
                                 method='SLSQP',
-                                constraints=({'type': 'eq', 'fun': lambda inputs: 1.0 - np.sum(inputs)}))
-#                                bounds=bounds)
+                                constraints=({'type': 'eq', 'fun': lambda inputs: 1.0 - np.sum(inputs)}),
+                                bounds=bounds)
     return w.x
 
 
@@ -36,6 +43,7 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj
     corr_matrix = corr_forecast_df.loc[date]
     cov_matrix = cov_forecast_df.loc[date]
     mean_matrix = return_mean.loc[date]
+    print("=======begin calc_hrp_corr_weights=======")
     if measure in ['drawdown', 'beta', 'value', 'str_change']:
         obj = obj_df.loc[date]
         dist = np.zeros((obj.shape[0], obj.shape[0]))
@@ -55,7 +63,7 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj
         dist = pd.DataFrame(dist, columns = beta.index, index = beta.index)
     else:
         dist = ((1 - corr_matrix) / 2.) ** .5
-
+    print("=======finish dist, begin calculating hrp weight======")
     link = sch.linkage(dist, 'single')
     sortIx = hrp.getQuasiDiag(link)
     sortIx = corr_matrix.index[sortIx].tolist()
@@ -97,15 +105,15 @@ def calc_weights(method='risk_parity',
         drawdown_df = returns_df.expanding(lookback_period).apply(lambda x: -hrp.mdd(x), raw=True)
 
         w = corr_forecast_df.groupby(level=0).apply(
-            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, drawdown_df=drawdown_df,
+            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=drawdown_df,
                                             measure='drawdown')).unstack(level=-1)
         return w
     elif method == 'hrp_beta':
-        beta = returns_df.rolling(lookback_period).apply(lambda x: HRP.beta4_standardized(x), raw = False)
+        beta = returns_df.rolling(lookback_period).apply(lambda x: hrp.beta4_standardized(x), raw = False)
         beta = beta.dropna()
 
         w = corr_forecast_df.groupby(level=0).apply(
-            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, beta_df=beta,
+            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=beta,
                                             measure='beta')).unstack(level=-1)
 
         return w
@@ -280,74 +288,93 @@ def calc_final_results(total_return,
     method = method.split(' ')[0]
     if len(weights_df) == 0:
         weights_df = calc_weights(method=method,
-                              vol_forecast_df=vol_forecast_df,
-                              corr_forecast_df=cor_forecast_df,
-                              cov_forecast_df=cov_forecast_df,
-                              returns_df=returns_df)
+                                  vol_forecast_df=vol_forecast_df,
+                                  corr_forecast_df=cor_forecast_df,
+                                  cov_forecast_df=cov_forecast_df,
+                                  returns_df=returns_df)
     rebal_df = calc_results_matrix(returns_df=returns_df, weights_df=weights_df, rebal_period='M')
     total_return = pd.concat([total_return, rebal_df.sum(axis=1).rename(method_name)], axis=1)
     results_metrics = pd.concat([results_metrics, calc_metrics(method_name, total_return[method_name].dropna(), weights_df)], axis=0)
     return total_return, results_metrics
 
+def calc_final_results_MC(total_return, results_metrics, ret, method):
+    """calculate weight for Monte-Carlo simulation"""
+    ret_df = pd.DataFrame(ret)
+    vol_forecast, var_forecast = calc_vol_forecast(ret_df, method='r_vol')
+    cor_forecast, cov_forecast = calc_cor_forecast(ret_df, method='r_cor')
+    total_return, results_metrics = calc_final_results(total_return,
+                                                       results_metrics,
+                                                       vol_forecast_df=vol_forecast,
+                                                       cor_forecast_df=cor_forecast,
+                                                       cov_forecast_df=cov_forecast,
+                                                       returns_df=ret_df,
+                                                       method=method)
+    return total_return, results_metrics
 
 def main():
-    # get Tier data
-    ret_df = get_data("data/combined_dataset_new.csv").pct_change()
-    ret_df = ret_df.replace(0.0, np.nan)    # to prevent volatility to explode
-    tier1 = ret_df.loc[:, ['USEq', 'USBond10Y']].dropna()
-    tier2 = ret_df.loc[:, 'GermanBond10Y':'USEq'].dropna()
-    tier3 = ret_df.dropna()
-    total_return = pd.DataFrame()
-    results_metrics = pd.DataFrame()
+#    # get Tier data
+#    ret_df = get_data("data/combined_dataset_new.csv").pct_change()
+#    ret_df = ret_df.replace(0.0, np.nan)    # to prevent volatility to explode
+#    tier1 = ret_df.loc[:, ['USEq', 'USBond10Y']].dropna()
+#    tier2 = ret_df.loc[:, 'GermanBond10Y':'USEq'].dropna()
+#    tier3 = ret_df.dropna()
+#    total_return = pd.DataFrame()
+#    results_metrics = pd.DataFrame()
+#
+#    # forecast volatility and variance
+#    vol_tier2, var_tier2 = calc_vol_forecast(tier2, method='r_vol')
+#    cor_tier2, cov_tier2 = calc_cor_forecast(tier2, method='r_cor')
+#    vol_tier3, var_tier3 = calc_vol_forecast(tier3, method='r_vol')
+#    cor_tier3, cov_tier3 = calc_cor_forecast(tier3, method='r_cor')
+#
+#    # ################# Benchmark ##################
+#    # # benchmark 1 - 60/40
+#    # weights_dict = {'USBond10Y': 0.4, 'USEq': 0.6}
+#    # weights_b1 = tier1.copy().apply(lambda x: pd.Series(tier1.columns.map(weights_dict).values), axis=1)
+#    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier1, weights_df=weights_b1, method='60/40')
+#    #
+#    # # benchmark 2 - All Weather
+#    # aw_df = tier2.loc[:, ['Gold', 'TRCommodity', 'USBond10Y', 'USEq']].dropna()
+#    # weights_dict = {'Gold':0.075, 'TRCommodity':0.075, 'USBond10Y':0.55, 'USEq':0.3}
+#    # weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
+#    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df, weights_df=weights_aw, method='all-weather')
+#    #
+#     # benchmark 3(2) - Equal Risk Parity Tier 2
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
+#                                                       cov_forecast_df=cov_tier2, returns_df=tier2, method='equal_risk_parity (tier2)')
+#     # benchmark 3 - Risk Parity Tier 2
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
+#                                                       cov_forecast_df=cov_tier2, returns_df=tier2, method='risk_parity (tier2)')
+#
+#    #
+#    # # benchmark 4 - Risk Parity Tier 3
+#    # total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier3, cor_forecast_df=cor_tier3,
+#    #                    cov_forecast_df=cov_tier3, returns_df=tier3, method='risk_parity (tier3)')
+#
+#    ################## HRP ##################
+##    # HRP - Covariance
+##    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
+##                       cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp')
+##
+##    # HRP - Maximum Drawdown
+##    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
+##                       cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp_dd')
+#
+#    # HRP - Downside Beta
+#
+#    # HRP - Values
+#
+#    # HRP Structural Change
+#
+#
+#    # display/plot results
+#    plt.rcParams["figure.figsize"] = (8, 5)
+#    total_return.plot(grid=True, title='Cumulative Return')
+#    print(results_metrics.to_string())
+#    plt.show()
 
-    # forecast volatility and variance
-    vol_tier2, var_tier2 = calc_vol_forecast(tier2, method='r_vol')
-    cor_tier2, cov_tier2 = calc_cor_forecast(tier2, method='r_cor')
-    vol_tier3, var_tier3 = calc_vol_forecast(tier3, method='r_vol')
-    cor_tier3, cov_tier3 = calc_cor_forecast(tier3, method='r_cor')
-
-    # ################# Benchmark ##################
-    # # benchmark 1 - 60/40
-    # weights_dict = {'USBond10Y': 0.4, 'USEq': 0.6}
-    # weights_b1 = tier1.copy().apply(lambda x: pd.Series(tier1.columns.map(weights_dict).values), axis=1)
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier1, weights_df=weights_b1, method='60/40')
-    #
-    # # benchmark 2 - All Weather
-    # aw_df = tier2.loc[:, ['Gold', 'TRCommodity', 'USBond10Y', 'USEq']].dropna()
-    # weights_dict = {'Gold':0.075, 'TRCommodity':0.075, 'USBond10Y':0.55, 'USEq':0.3}
-    # weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df, weights_df=weights_aw, method='all-weather')
-    #
-    # # benchmark 3 - Risk Parity Tier 2
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
-    #                    cov_forecast_df=cov_tier2, returns_df=tier2, method='risk_parity (tier2)')
-    #
-    # # benchmark 4 - Risk Parity Tier 3
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier3, cor_forecast_df=cor_tier3,
-    #                    cov_forecast_df=cov_tier3, returns_df=tier3, method='risk_parity (tier3)')
-
-    ################## HRP ##################
-    # HRP - Covariance
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
-                       cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp')
-
-    # HRP - Maximum Drawdown
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, vol_forecast_df=vol_tier2, cor_forecast_df=cor_tier2,
-                       cov_forecast_df=cov_tier2, returns_df=tier2, method='hrp_dd')
-
-    # HRP - Downside Beta
-
-    # HRP - Values
-
-    # HRP Structural Change
-
-
-    # display/plot results
-    plt.rcParams["figure.figsize"] = (8, 5)
-    total_return.plot(grid=True, title='Cumulative Return')
-    print(results_metrics.to_string())
-    plt.show()
-
+    # Monte Carlo
+    total_return_MC, results_metrics_MC = MC.hrpMC()
 
 if __name__ == "__main__":
     main()

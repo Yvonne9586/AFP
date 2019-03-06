@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from arch import arch_model
 import scipy.cluster.hierarchy as sch
-
+import HRP
+import datetime
 import scipy.optimize
 
 MONTH = 12
@@ -26,12 +27,12 @@ def calc_eq_risk_parity_weights(x, cov_forecast_df):
     cov_matrix = cov_forecast_df.loc[date]
     N = cov_matrix.shape[0]
     para_init = np.ones(N)/N
-    bounds = ((-1.0, 1.0),) * N
+#    bounds = ((-1.0, 1.0),) * N
     w = scipy.optimize.minimize(F, x0=para_init,
                                 args=(cov_matrix),
                                 method='SLSQP',
-                                constraints=({'type': 'eq', 'fun': lambda inputs: 1.0 - np.sum(inputs)}),
-                                bounds=bounds)
+                                constraints=({'type': 'eq', 'fun': lambda inputs: 1.0 - np.sum(inputs)}))
+#                                bounds=bounds)
     return w.x
 
 

@@ -156,9 +156,34 @@ def window_beta4(ret_month):
             r2 = beta_convexity(ret_month[asset], ret_month['USEq'])[1]
     return beta,r2
 
-
-
-
+import statsmodels.api as sm
+def structure_break(price_month):
+    SADF = {}
+    temp = []
+    log_price = np.log(price_month)
+    tau = 60
+    L = 4
+    log_price_dff = log_price.diff()
+    t =log_price.shape[0] - 1
+    for asset in price_month.columns:
+        for t0 in range(L, t - tau, 12):
+            reg_data = pd.DataFrame({
+                    'dy_t':np.array(log_price[asset].iloc[(t0+1):t]),
+                    'alpha':1, 
+                    'y_t-1':np.array(log_price[asset].iloc[t0:(t-1)]),
+                    'dy_t-1':np.array(log_price_dff[asset].iloc[t0:(t-1)]),
+                    'dy_t-2': np.array(log_price_dff[asset].iloc[(t0-1):(t-2)]),
+                    'dy_t-3': np.array(log_price_dff[asset].iloc[(t0-2):(t-3)]),
+                    'dy_t-4': np.array(log_price_dff[asset].iloc[(t0-3):(t-4)]),
+                    'dy_t-5': np.array(log_price_dff[asset].iloc[(t0-4):(t-5)])}, index = log_price_dff.iloc[t0+1:t,].index).dropna()
+            reg = sm.OLS(reg_data['dy_t'],reg_data[['alpha','y_t-1','dy_t-1','dy_t-2','dy_t-3','dy_t-4','dy_t-5']]).fit()
+            r = np.zeros_like(reg.params)
+            r[1] = 1
+            T_test = reg.t_test(r)
+            temp.append(reg.params[1]/T_test.sd[0][0])
+        SADF[asset] = np.max(temp)
+    return SADF
+        
 
 
 

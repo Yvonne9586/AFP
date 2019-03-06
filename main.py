@@ -6,6 +6,7 @@ import scipy.cluster.hierarchy as sch
 import scipy.optimize
 import hrp_helper
 import warnings
+import MC
 
 warnings.filterwarnings("ignore")
 
@@ -353,7 +354,7 @@ def main():
     results_metrics.to_csv("results/results.csv")
 
     # Monte Carlo
-    total_return_MC, results_metrics_MC = MC.hrpMC()
+#    total_return_MC, results_metrics_MC = MC.hrpMC()
 
 if __name__ == "__main__":
     main()

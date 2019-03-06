@@ -5,6 +5,7 @@ Created on Tue Mar  5 14:51:36 2019
 @author: colin
 """
 import scipy.cluster.hierarchy as sch, random, numpy as np, pandas as pd
+from main import calc_final_results_MC
 #from HRP import correlDist, getIVP, getQuasiDiag, getRecBipart
 #
 ##a = np.arange(10).reshape(2, 5)
@@ -39,10 +40,9 @@ def generateData(nObs, sLength, size0, size1, mu0, sigma0, sigma1F):
     x[point, cols[-1]] = np.array([-.5, 2])
     return x, cols
 
-generateData(520, 260, 5, 5, 0, 0.01, 0.25)
 
-def hrpMC(numIters=10000, nObs=520, size0=5, size1=5, mu0=0, sigma0=0.01,\
-          sigma1F=.25, sLength=260, rebal=22):
+def hrpMC(numIters=3, nObs=360, size0=5, size1=5, mu0=0, sigma0=0.01,\
+          sigma1F=.25, sLength=60, rebal=1):
     """Monte Carlo experiment on HRP"""
     # TODO: include more combination (all our portfolios) than three
     # default: daily return data;
@@ -51,33 +51,17 @@ def hrpMC(numIters=10000, nObs=520, size0=5, size1=5, mu0=0, sigma0=0.01,\
     #          then rebalance (rebal=22)
     #          see the one year performance in the future (nObs=260 + sLength = 520)
     #          10 assets (size0=5 + size1=5)          
-    methods = [getIVP, getHRP, getCLA]
-    stats, numIter = {i.__name__: pd.Series() for i in methods}, 0
-    pointers = range(sLength, nObs, rebal)
+    methods = ['hrp_dd', 'risk_parity', 'equal_risk_parity']
+    numIter = 0
+    total_return = {i: pd.DataFrame() for i in methods}
+    results_metrics = {i: pd.DataFrame() for i in methods}
     while numIter < numIters:
         print(numIter)
         #1) Prepare data for one experiment
         x, cols = generateData(nObs, sLength, size0, size1, mu0, sigma0, sigma1F)
-        r = {i.__name__:pd.Series() for i in methods}
-        #2) Compute portfolios in-sample
-        for pointer in pointers:
-            x_ = x[pointer-sLength:pointer]  # historical data e.g. [260-260:260]
-            cov_, corr_ = np.cov(x_, rowvar=0), np.corrcoef(x_, rowvar=0)
-            #3) Compute performance out-of-sample
-            x_ = x[pointer:pointer+rebal]  # next month data e.g. [260:260+22]
-            for func in methods:
-                w_ = func(cov=cov_,corr=corr_) # callback
-                r_ = pd.Series(np.dot(x_, w_))
-                r[func.__name__] = r[func.__name__].append(r_)
-        #4) Evaluate and store results
-        for func in methods:
-            r_ = r[func.__name__].reset_index(drop=True)
-            p_ = (1 + r_).cumprod()
-            stats[func.__name__].loc[numIter]=p_.iloc[-1]-1
+        for method in methods:
+            method_name = method + " " + "MC_Iter_" + str(numIter)
+            total_return[method], results_metrics[method] =\
+                calc_final_results_MC(total_return[method], results_metrics[method], x, method_name)
         numIter += 1
-    #5) Report results
-    stats = pd.DataFrame.from_dict(stats, orient='columns')
-    stats.to_csv('stats.csv')
-    df0, df1 = stats.std(), stats.var()
-    print(pd.concat([df0, df1, df1/df1['getHRP']-1],axis=1))
-    return None
+    return total_return, results_metrics

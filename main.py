@@ -6,15 +6,22 @@ import scipy.cluster.hierarchy as sch
 import scipy.optimize
 import hrp_helper
 import warnings
+import MC
 
 warnings.filterwarnings("ignore")
 
 
-def F(w, cov_matrix):
+def F(w, cov_matrix, N):
     """equal risk parity forula"""
-    N = cov_matrix.shape[0]
-    return np.dot(w, np.diag(cov_matrix)) * N - np.dot(w, cov_matrix.dot(w))
+    diff = 0
+    for i in range(N):
+        diff += np.power(w[i] - (np.dot(w, np.dot(cov_matrix,w))/
+                          (N * np.dot(cov_matrix, w)[i])),2)
+    return diff
 
+#w = [2, 3]
+#cov_matrix = pd.DataFrame([[4,5],[6,7]])
+#F(w, cov_matrix)
 
 def calc_eq_risk_parity_weights(x, cov_forecast_df):
     """calculate weight for each asset,
@@ -25,12 +32,12 @@ def calc_eq_risk_parity_weights(x, cov_forecast_df):
     cov_matrix = cov_forecast_df.loc[date]
     N = cov_matrix.shape[0]
     para_init = np.ones(N)/N
-#    bounds = ((-1.0, 1.0),) * N
+    bounds = ((0, 1.0),) * N  # long only
     w = scipy.optimize.minimize(F, x0=para_init,
-                                args=(cov_matrix),
+                                args=(cov_matrix.values, N),
                                 method='SLSQP',
-                                constraints=({'type': 'eq', 'fun': lambda inputs: 1.0 - np.sum(inputs)}))
-#                                bounds=bounds)
+                                constraints=({'type': 'eq', 'fun': lambda inputs: 1.0 - np.sum(inputs)}),
+                                bounds=bounds)
     return w.x
 
 
@@ -53,7 +60,6 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj
         dist = (abs(1 - corr_matrix) / 2.) ** .5
     else:
         raise ValueError("Measure is not valid")
-
     link = sch.linkage(dist, 'single')
     sortIx = hrp_helper.getQuasiDiag(link)
     sortIx = corr_matrix.index[sortIx].tolist()
@@ -272,6 +278,19 @@ def calc_final_results(total_return,
         [results_metrics, calc_metrics(method_name, total_return[method_name].dropna(), weights_df)], axis=0)
     return total_return, results_metrics
 
+def calc_final_results_MC(total_return, results_metrics, ret, method):
+    """calculate weight for Monte-Carlo simulation"""
+    ret_df = pd.DataFrame(ret)
+    vol_forecast, var_forecast = calc_vol_forecast(ret_df, method='r_vol')
+    cor_forecast, cov_forecast = calc_cor_forecast(ret_df, method='r_cor')
+    total_return, results_metrics = calc_final_results(total_return,
+                                                       results_metrics,
+                                                       vol_forecast_df=vol_forecast,
+                                                       cor_forecast_df=cor_forecast,
+                                                       cov_forecast_df=cov_forecast,
+                                                       returns_df=ret_df,
+                                                       method=method)
+    return total_return, results_metrics
 
 def main():
     # get Tier data
@@ -353,6 +372,8 @@ def main():
     total_return.to_csv("results/total_return.csv")
     results_metrics.to_csv("results/results.csv")
 
+    # Monte Carlo
+#    total_return_MC, results_metrics_MC = MC.hrpMC()
 
 if __name__ == "__main__":
     main()

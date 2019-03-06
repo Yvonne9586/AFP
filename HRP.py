@@ -13,6 +13,7 @@ import os
 from scipy.stats import skew , kurtosis
 from sklearn.linear_model import LinearRegression
 from scipy.spatial.distance import cdist
+import statsmodels.api as sm
 
 #############################################
 
@@ -109,22 +110,81 @@ def SSPW(weights):
     return np.sum(np.sum(weights**2))/weights.shape[1]
     
 def beta_convexity(asset, useq):
-    useq_pos = pd.DataFrame({'USEq_pos':[0 if useq[i]<0 else useq[i] for i in range(useq.shape[0])]})
-    useq_neg = pd.DataFrame({'USEq_neg':[0 if useq[i]>0 else useq[i] for i in range(useq.shape[0])]})
-    data = pd.concat([asset,pd.DataFrame(np.ones(asset.shape[0])) ,useq_pos, useq_pos**2, useq_neg, useq_neg**2], join = 'inner', axis = 1)
-    data = data.dropna()
-    reg = LinearRegression().fit(data.iloc[:,1:],data.iloc[:,0])
-    r2 = reg.score(data.iloc[:,1:],data.iloc[:,0])
+    useq_pos = [0 if useq.iloc[i]<0 else useq.iloc[i] for i in range(useq.shape[0])]
+    useq_pos2 = [0 if useq.iloc[i]<0 else useq.iloc[i]**2 for i in range(useq.shape[0])]
+    useq_neg = [0 if useq.iloc[i]>0 else useq.iloc[i] for i in range(useq.shape[0])]
+    useq_neg2 = [0 if useq.iloc[i]>0 else useq.iloc[i]**2 for i in range(useq.shape[0])]
+
+    temp = pd.DataFrame({pd.DataFrame(asset).columns[0]: asset, 'USEq_pos':useq_pos, 'USEq_neg':useq_neg, 'USEq_pos2': useq_pos2, 
+                         'USEq_neg2':useq_neg2}, index = asset.index)
+    temp = temp.dropna()
+    reg = LinearRegression().fit(temp.iloc[:,1:],temp.iloc[:,0])
+    r2 = reg.score(temp.iloc[:,1:],temp.iloc[:,0])
+    
     return reg.coef_,r2
+
+
+def beta4_standardized(train):
+    betas = {}
+    useq = train['USEq']
+    useq_pos = [0 if useq.iloc[i]<0 else useq.iloc[i] for i in range(useq.shape[0])]
+    useq_pos2 = [0 if useq.iloc[i]<0 else useq.iloc[i]**2 for i in range(useq.shape[0])]
+    useq_neg = [0 if useq.iloc[i]>0 else useq.iloc[i] for i in range(useq.shape[0])]
+    useq_neg2 = [0 if useq.iloc[i]>0 else useq.iloc[i]**2 for i in range(useq.shape[0])]
+    for asset in train.columns:
+        if asset != 'USEq':
+            temp = pd.DataFrame({asset: np.array(train[asset]), 'USEq_pos':useq_pos, 'USEq_neg':useq_neg, 'USEq_pos2': useq_pos2, 
+                         'USEq_neg2':useq_neg2}, index = train.index)
+        temp = temp.dropna()
+        reg = sm.OLS(temp.iloc[:,0],temp.iloc[:,1:]).fit()
+        r = np.zeros_like(reg.params)
+        r[3] = 1
+        T_test = reg.t_test(r)
+        betas[asset] = reg.params[3]/T_test.sd[0][0]
+    return pd.DataFrame.from_dict(betas, orient = 'index').rename(columns = {0:train.index[-1]})
+    
+    
+
 
 
 def window_beta4(ret_month):
     beta = {}
     r2 = {}
-    for asset in ret_month.columns[1:]:
+    for asset in ret_month.columns:
         if asset!='USEq':
             beta[asset] = beta_convexity(ret_month[asset], ret_month['USEq'])[0][3]
             r2 = beta_convexity(ret_month[asset], ret_month['USEq'])[1]
     return beta,r2
+
+import statsmodels.api as sm
+def structure_break(price_month):
+    SADF = {}
+    temp = []
+    log_price = np.log(price_month)
+    tau = 60
+    L = 4
+    log_price_dff = log_price.diff()
+    t =log_price.shape[0] - 1
+    for asset in price_month.columns:
+        for t0 in range(L, t - tau, 12):
+            reg_data = pd.DataFrame({
+                    'dy_t':np.array(log_price[asset].iloc[(t0+1):t]),
+                    'alpha':1, 
+                    'y_t-1':np.array(log_price[asset].iloc[t0:(t-1)]),
+                    'dy_t-1':np.array(log_price_dff[asset].iloc[t0:(t-1)]),
+                    'dy_t-2': np.array(log_price_dff[asset].iloc[(t0-1):(t-2)]),
+                    'dy_t-3': np.array(log_price_dff[asset].iloc[(t0-2):(t-3)]),
+                    'dy_t-4': np.array(log_price_dff[asset].iloc[(t0-3):(t-4)]),
+                    'dy_t-5': np.array(log_price_dff[asset].iloc[(t0-4):(t-5)])}, index = log_price_dff.iloc[t0+1:t,].index).dropna()
+            reg = sm.OLS(reg_data['dy_t'],reg_data[['alpha','y_t-1','dy_t-1','dy_t-2','dy_t-3','dy_t-4','dy_t-5']]).fit()
+            r = np.zeros_like(reg.params)
+            r[1] = 1
+            T_test = reg.t_test(r)
+            temp.append(reg.params[1]/T_test.sd[0][0])
+        SADF[asset] = np.max(temp)
+    return SADF
+        
+
+
 
 

@@ -100,24 +100,29 @@ def calc_weights(method='risk_parity',
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, drawdown_df=drawdown_df,
                                             measure='drawdown')).unstack(level=-1)
         return w
+    elif method == 'hrp_beta':
+        beta = returns_df.rolling(lookback_period).apply(lambda x: HRP.beta4_standardized(x), raw = False)
+        beta = beta.dropna()
 
-    # elif method == 'hrp_beta':
-    #     beta = returns_df.rolling(lookback_period).apply(lambda x: HRP.beta4_standardized(x), raw = False)
-    #     beta = beta.dropna()
+        w = corr_forecast_df.groupby(level=0).apply(
+            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, beta_df=beta,
+                                            measure='beta')).unstack(level=-1)
 
-    #     w = corr_forecast_df.groupby(level=0).apply(
-    #         lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, beta_df=beta,
-    #                                         measure='beta')).unstack(level=-1)
-
-    #     return w
-
+        return w
 
 def get_data(file_location):
     # get the data, clean it, merge it
     df = pd.read_csv(file_location, index_col=0)#.dropna()
     df.index = pd.to_datetime(df.index)
     df = df.sort_index(ascending=True)
-    return df
+    #keep the data since ukequity available
+    df = df[df.index > datetime.datetime(1933,7,1)]
+    df_ret = df.pct_change()
+    df_ret[['BAB','UMD_Large','UMD_Small']] = df[['BAB','UMD_Large','UMD_Small']]
+    #data check
+    df.plot(figsize = (15,10), colormap='tab20')
+    df_ret.plot(figsize = (15,10),colormap='tab20')
+    return df_ret
 
 
 def calc_rebal(x, portfolio_df, returns_df, weights_df, txn_cost):
@@ -125,8 +130,6 @@ def calc_rebal(x, portfolio_df, returns_df, weights_df, txn_cost):
     curr_period = x.index[1]
 
     # calculate percentage increase over the period
-    # prev_index_values = index_df.loc[:prev_period, :].iloc[-1]
-    # curr_index_values = index_df.loc[:curr_period, :].iloc[-1]
     period_return = returns_df.loc[curr_period, :].values + 1
 
     # apply to portfolio
@@ -278,7 +281,7 @@ def calc_final_results(total_return,
                        cor_forecast_df=None,
                        cov_forecast_df=None,
                        returns_df=None,
-                       weights_df=pd.DataFrame(), 
+                       weights_df=pd.DataFrame(),
                        method=''):
     method_name = method
     method = method.split(' ')[0]
@@ -345,27 +348,6 @@ def main():
 
     # HRP Structural Change
 
-    # # get index data
-    # index_df = get_data("data/indexes.csv")
-    # index_df = index_df.loc[:, ['US10Y', 'RTY INDEX', 'SPX INDEX', 'GOLD']].dropna()
-    # # get percentage change
-    # index_change_df = index_df.pct_change().dropna()
-
-    
-
-    # # calculate weights
-    # weights_df = calc_weights(method='hrp_dd',
-    #                           vol_forecast_df=vol_forecast_df.dropna(),
-    #                           corr_forecast_df=cor_forecast_df.dropna(),
-    #                           cov_forecast_df=cov_forecast_df.dropna(),
-    #                           returns_df=index_change_df.dropna())
-
-    # # calc rebal
-    # df_rebal = calc_results_matrix(index_df=index_df, weights_df=weights_df, rebal_period='M')
-    # total_return = df_rebal.sum(axis=1).rename('Risk Parity')
-
-    # # calc metrics
-    # results_metrics = calc_metrics('Risk parity', total_return, weights_df)
 
     # display/plot results
     plt.rcParams["figure.figsize"] = (8, 5)

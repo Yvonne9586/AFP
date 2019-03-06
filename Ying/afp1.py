@@ -266,7 +266,6 @@ for i in range(0, int((ret_month.shape[0] - train_period)/test_period)):
 oos_test = pd.DataFrame(oos[list(oos.keys())[0]]).rename(columns = {0:'ret'})
 weights = pd.DataFrame(w[list(w.keys())[0]]).rename(columns = {0: ret_month.index[train_period + 1]}).T
 
-
 for key in oos.keys():
     if key != list(oos.keys())[0]:
         oos_test = pd.concat([oos_test,pd.DataFrame(oos[key]).rename(columns = {0:'ret'})])
@@ -280,9 +279,6 @@ plt.xticks(rotation = 60)
 #plot weights
 weights = weights.fillna(method = 'ffill')
 weights.plot(figsize = (25,10),colormap='tab20')
-
-
-
 
 
 

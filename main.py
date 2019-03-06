@@ -3,8 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from arch import arch_model
 import scipy.cluster.hierarchy as sch
-
+import os
+os.chdir('C:/UCB/AFP/newAFP/AFP')
 import scipy.optimize
+import HRP
+import datetime
 
 MONTH = 12
 DAY = 252
@@ -301,12 +304,16 @@ def get_dynamic_result(tier_df, total_return, results_metrics, method, tier_name
     df_rebal = calc_results_matrix(index_df=tier_df, weights_df=weights_df, rebal_period='M')
     total_return = pd.concat([total_return, df_rebal.sum(axis=1).rename(method + tier_name)], axis=1).dropna()
     results_metrics = pd.concat([results_metrics, calc_metrics(method, total_return[method + tier_name], weights_df)], axis=0)
-
+    weights_all = pd.concat([weights, calc_weights(method=method,
+                              vol_forecast_df=vol_forecast_df.dropna(),
+                              corr_forecast_df=cor_forecast_df.dropna(),
+                              cov_forecast_df=cov_forecast_df.dropna(),
+                              returns_df=tier_change_df.dropna())], axis=0)
     # output dfs
     # df_rebal.to_csv('data/rebal.csv')
     # weights_df.to_csv('data/weights.csv')
     # vol_forecast_df.to_csv('data/vol_forecast.csv')
-    return total_return, results_metrics
+    return total_return, results_metrics, weights_all
 
 def get_tiers(file_path):
     """split all the data from combined dataset
@@ -346,11 +353,14 @@ def get_tiers(file_path):
 def main():
     total_return = pd.DataFrame()
     results_metrics = pd.DataFrame()
+    weights = pd.DataFrame()
     tier1_df, tier2_df, tier3_df = get_tiers("data/combined_dataset_new.csv")
 
     # calculate investment portfolio: HRP with mdd
-    total_return, results_metrics = get_dynamic_result(tier3_df, total_return, results_metrics, "hrp_dd", " tier 3")
+    total_return, results_metrics, weights = get_dynamic_result(tier3_df, total_return, results_metrics, "hrp_dd", " tier 3")
     print("========done with hrp with mdd=========")
+    #calculate investment portfolio: HRP with cov
+    
     # calculate benchmark 3: traditional risk-parity with tier 2
     total_return, results_metrics = get_dynamic_result(tier2_df, total_return, results_metrics, "risk_parity", " tier 2")
     print("========done with traditional risk-parity with tier 2 assets=========")

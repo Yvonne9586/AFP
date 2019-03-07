@@ -98,7 +98,7 @@ def mdd(ret):
     mdd = dd.min()
     #end = dd.idxmin()
     #start = ret.loc[:end].idxmax()
-    return mdd
+    return mdd[0]
     
 def turnover(weights):
     sum = 0

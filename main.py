@@ -4,9 +4,13 @@ import matplotlib.pyplot as plt
 from arch import arch_model
 import scipy.cluster.hierarchy as sch
 import scipy.optimize
-import hrp_helper
 import warnings
 import MC
+import os
+os.chdir('C:/UCB/AFP/newAFP/AFP')
+import hrp_helper
+import datetime
+
 
 warnings.filterwarnings("ignore")
 
@@ -41,30 +45,39 @@ def calc_eq_risk_parity_weights(x, cov_forecast_df):
     return w.x
 
 
-def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=None, measure='corr'):
+def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=None, measure = None):
     date = x.index.values[0][0]
-    corr_matrix = corr_forecast_df.loc[date]
-    cov_matrix = cov_forecast_df.loc[date]
-    mean_matrix = return_mean.loc[date]
-    if measure == 'abs_dist':
-        obj = obj_df.loc[date]
-        dist = np.zeros((obj.shape[0], obj.shape[0]))
-        for h in range(obj.shape[0]):
-            for k in range(obj.shape[0]):
-                dist[h, k] = np.abs(obj.iloc[h] - obj.iloc[k])
-        dist = pd.DataFrame(dist, columns=obj.index, index=obj.index)
-
-    elif measure == 'corr':
-        dist = (abs(1 - corr_matrix) / 2.) ** .5
+    corr_matrix = corr_forecast_df.loc[date].dropna(how = 'all').dropna(how = 'all', axis = 1)
+    cov_matrix = cov_forecast_df.loc[date].loc[corr_matrix.index, corr_matrix.columns]
+    mean_matrix = return_mean.loc[date][corr_matrix.columns]
+    if corr_matrix.shape[1]>1:
+        if measure == 'abs_dist':
+            obj = obj_df.loc[date].dropna()
+            obj = obj[corr_matrix.columns]
+            dist = np.zeros((obj.shape[0], obj.shape[0]))
+            for h in range(obj.shape[0]):
+                for k in range(obj.shape[0]):
+                    dist[h, k] = np.abs(obj.iloc[h] - obj.iloc[k])
+            dist = pd.DataFrame(dist, columns=obj.index, index=obj.index)
+    
+        elif measure == 'corr':
+            dist = (abs(1 - corr_matrix) / 2.) ** .5
+        else:
+            raise ValueError("Measure is not valid")
+        link = sch.linkage(dist, 'single')
+        sortIx = hrp_helper.getQuasiDiag(link)
+        sortIx = corr_matrix.index[sortIx].tolist()
+    
+        hrp = hrp_helper.getRecBipart(cov_matrix, sortIx, mean_matrix)
+        hrp[np.abs(hrp) > 1] = 1
+        hrp = pd.DataFrame(hrp / hrp.sum())
+        missed = list(set(corr_forecast_df.columns) - set(cov_matrix.columns))
+        missing = pd.DataFrame(index = missed, columns = [0])
+        hrp = pd.concat([hrp, missing]).T
+        #resort column order
+        hrp = hrp[corr_forecast_df.columns]
     else:
-        raise ValueError("Measure is not valid")
-    link = sch.linkage(dist, 'single')
-    sortIx = hrp_helper.getQuasiDiag(link)
-    sortIx = corr_matrix.index[sortIx].tolist()
-
-    hrp = hrp_helper.getRecBipart(cov_matrix, sortIx, mean_matrix)
-    hrp[np.abs(hrp) > 1] = 1
-    hrp = hrp / hrp.sum()
+        hrp = pd.DataFrame(columns = corr_forecast_df.columns, index = [0])
     return hrp
 
 
@@ -95,10 +108,14 @@ def calc_weights(method='risk_parity',
         return w
     elif method == 'hrp_dd':
         # can be changed to expanding if want to take into account all data
-        drawdown_df = returns_df.expanding(lookback_period).apply(lambda x: -hrp_helper.mdd(x), raw=True)
+        drawdown_df = returns_df.expanding(lookback_period).apply(lambda x: -hrp_helper.mdd(x), raw=False)
+        #standardize dd
+        drawdown_df = drawdown_df.sub(drawdown_df.mean(axis = 1), axis = 0)
+        drawdown_df[drawdown_df<0] = 0
+        drawdown_df[drawdown_df>0] = np.exp(drawdown_df[drawdown_df>0])
         w = corr_forecast_df.groupby(level=0).apply(
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=drawdown_df,
-                                            measure='abs_dist')).unstack(level=-1)
+                                            measure='abs_dist')).unstack(-1)
         return w
     elif pre_calc:
         w = corr_forecast_df.groupby(level=0).apply(
@@ -285,7 +302,9 @@ def main():
     ret_df = ret_df.replace(0.0, np.nan)    # to prevent volatility to explode
     tier1 = ret_df.loc[:, ['USEq', 'USBond10Y']].dropna()
     tier2 = ret_df.loc[:, 'GermanBond10Y':'USEq'].dropna()
-    tier3 = ret_df.dropna()
+    #tier3 = ret_df.dropna()
+    #tier3 inclusive of tier1 and 2
+    tier3 = ret_df
     total_return = pd.DataFrame()
     results_metrics = pd.DataFrame()
 
@@ -308,7 +327,7 @@ def main():
     weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df,
                                                        weights_df=weights_aw, method='all-weather')
-
+   
     # benchmark 3 - Risk Parity Tier 2
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
                                                        method='risk_parity (tier2)')

@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from arch import arch_model
 import scipy.cluster.hierarchy as sch
 import scipy.optimize
-import hrp_helper
 import warnings
 import MC
 from scipy.cluster.hierarchy import dendrogram
@@ -42,7 +41,7 @@ def calc_eq_risk_parity_weights(x, cov_forecast_df):
     return w.x
 
 
-def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=None, measure='corr'):
+def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=None, measure = None):
     date = x.index.values[0][0]
     corr_matrix = corr_forecast_df.loc[date]
     cov_matrix = cov_forecast_df.loc[date]
@@ -102,10 +101,14 @@ def calc_weights(method='risk_parity',
         return w
     elif method == 'hrp_dd':
         # can be changed to expanding if want to take into account all data
-        drawdown_df = returns_df.expanding(lookback_period).apply(lambda x: -hrp_helper.mdd(x), raw=True)
+        drawdown_df = returns_df.expanding(lookback_period).apply(lambda x: -hrp_helper.mdd(x), raw=False)
+        #standardize dd
+        drawdown_df = drawdown_df.sub(drawdown_df.mean(axis = 1), axis = 0)
+        drawdown_df[drawdown_df<0] = 0
+        drawdown_df[drawdown_df>0] = np.exp(drawdown_df[drawdown_df>0])
         w = corr_forecast_df.groupby(level=0).apply(
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=drawdown_df,
-                                            measure='abs_dist')).unstack(level=-1)
+                                            measure='abs_dist')).unstack(-1)
         return w
     elif pre_calc:
         w = corr_forecast_df.groupby(level=0).apply(
@@ -313,7 +316,7 @@ def main():
     # ret_df = ret_df.drop(['Oil', 'TRCommodity'], axis=1)
     tier1 = ret_df.loc[:, ['USEq', 'USBond10Y']].dropna()
     tier2 = ret_df.loc[:, 'GermanBond10Y':'USEq'].dropna()
-    tier3 = ret_df.dropna().drop(['Oil', 'TRCommodity'], axis=1)
+    tier3 = ret_df.dropna()#.drop(['Oil', 'TRCommodity'], axis=1)
     total_return = pd.DataFrame()
     results_metrics = pd.DataFrame()
     print("=========== Portfolio Construction Started ===========")
@@ -358,27 +361,27 @@ def main():
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
                                                        method='hrp_dd (tier 3)')
     print("=========== HRP Maximum Drawdown Portfolio Completed ===========")
-    
+
     # HRP - Downside Beta
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
                                                        method='hrp_beta (tier 2)')
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
                                                        method='hrp_beta (tier 3)')
     print("=========== HRP Downside Beta Portfolio Completed ===========")
-    
+
     # HRP - Values
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
                                                        method='hrp_val (tier 2)')
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
                                                        method='hrp_val (tier 3)')
     print("=========== HRP Value Portfolio Completed ===========")
-    
-    # # HRP - Structural Change
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-    #                                                    method='hrp_strc (tier 2)')
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-    #                                                    method='hrp_strc (tier 3)')
-    # print("=========== HRP Structural Break Portfolio Completed ===========")
+
+    # HRP - Structural Change
+    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+                                                       method='hrp_strc (tier 2)')
+    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+                                                       method='hrp_strc (tier 3)')
+    print("=========== HRP Structural Break Portfolio Completed ===========")
 
     # display/plot results
     total_return.loc['2003-01-01':, :].apply(lambda x: x/x[0]).plot(grid=True, title='Cumulative Return', figsize=[12, 8])

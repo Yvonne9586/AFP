@@ -46,16 +46,77 @@ def getIVP(cov,**kargs):
     return ivp
 
 
-def getClusterVar(cov, cItems, mean):
+def getClusterLink(link):
+    link = link.astype(int)
+    extra_dict = {}
+    numItems = link[-1, 3]
+    for i in range(link.shape[0]):
+        l1, l2 = link[i, 0:2]
+        l1 = extra_dict[l1] if l1 >= numItems else [l1]
+        l2 = extra_dict[l2] if l2 >= numItems else [l2]
+        extra_dict[numItems + i] = [l1] + [l2]
+    return extra_dict[numItems + i]
+
+
+# def getClusterVar(cov, cItems):
+#     cov_ = cov.iloc[cItems,cItems]
+#     w_ = getIVP(cov_).reshape(-1,1)
+#     cVar = np.sqrt(np.dot(np.dot(w_.T,cov_),w_)[0,0])
+#     return cVar
+
+
+def getClusterVar(cov, cItems):
     cov_ = cov.loc[cItems,cItems]
-    mean_ = mean.loc[cItems]
     w_ = getIVP(cov_).reshape(-1,1)
-    #cVar = np.dot(np.dot(w_.T,cov_),w_)[0,0] * np.dot(w_.T,mean_)[0] 
+    #cVar = np.dot(np.dot(w_.T,cov_),w_)[0,0] * np.dot(w_.T,mean_)[0]
     cVar = np.sqrt(np.dot(np.dot(w_.T,cov_),w_)[0,0])
     return cVar
 
 
-def getRecBipart(cov, sortIx, mean):
+def getList(ls):
+    if isinstance(ls[0], (int, np.integer)):
+        return ls
+    full_ls = []
+    for sub_ls in ls:
+        full_ls += getList(sub_ls)
+    return full_ls
+
+
+def getListDepth(ls, n):
+    for i in range(n):
+        result_ls = []
+        for sub_ls in ls:
+            if len(sub_ls) < 2:
+                # result_ls += [sub_ls]
+                pass
+            elif (isinstance(sub_ls[0], (int, np.integer))) and (isinstance(sub_ls[1], (int, np.integer))):
+                result_ls.append(sub_ls)
+                pass
+            else:
+                result_ls += [sub_ls[0]] + [sub_ls[1]]
+        ls = result_ls
+    return [getList(sub_ls) for sub_ls in ls]
+
+
+def getRecPart(cov, sort_ls):
+    w = pd.Series(1, index = cov.index)
+    cItems = [sort_ls]
+    counter = 0
+    while len(cItems) > 0:
+        cItems = getListDepth(sort_ls, counter)
+        for i in range(0,len(cItems),2):
+            cItems0 = cov.index[cItems[i]].tolist()
+            cItems1 = cov.index[cItems[i+1]].tolist()
+            cVar0 = getClusterVar(cov, cItems0)
+            cVar1 = getClusterVar(cov, cItems1)
+            alpha = 1 - cVar0/(cVar0+cVar1)
+            w[cItems0] *= alpha
+            w[cItems1] *= 1 - alpha
+        counter += 1
+    return w
+
+
+def getRecBipart(cov, sortIx):
     w = pd.Series(1, index = sortIx)
     cItems = [sortIx]
     while len(cItems)>0:
@@ -63,12 +124,13 @@ def getRecBipart(cov, sortIx, mean):
         for i in range(0,len(cItems),2):
             cItems0 = cItems[i]
             cItems1 = cItems[i+1]
-            cVar0 = getClusterVar(cov, cItems0, mean)
-            cVar1 = getClusterVar(cov, cItems1, mean)
+            cVar0 = getClusterVar(cov, cItems0)
+            cVar1 = getClusterVar(cov, cItems1)
             alpha = 1 - cVar0/(cVar0+cVar1)
             w[cItems0]*=alpha
             w[cItems1]*=1- alpha
     return w
+
 
 
 
@@ -98,7 +160,7 @@ def mdd(ret):
     mdd = dd.min()
     #end = dd.idxmin()
     #start = ret.loc[:end].idxmax()
-    return mdd
+    return mdd[0]
     
 def turnover(weights):
     sum = 0

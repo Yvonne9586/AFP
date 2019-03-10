@@ -5,6 +5,7 @@ from arch import arch_model
 import scipy.cluster.hierarchy as sch
 import scipy.optimize
 import warnings
+import hrp_helper
 import MC
 from scipy.cluster.hierarchy import dendrogram
 
@@ -41,7 +42,7 @@ def calc_eq_risk_parity_weights(x, cov_forecast_df):
     return w.x
 
 
-def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=None, measure = None):
+def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=None, measure='corr'):
     date = x.index.values[0][0]
     corr_matrix = corr_forecast_df.loc[date]
     cov_matrix = cov_forecast_df.loc[date]
@@ -65,10 +66,12 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj
     # fig = plt.figure(figsize=(8, 5))
     # dn = dendrogram(link, labels=return_mean.columns)
     # plt.show()
-    sortIx = hrp_helper.getQuasiDiag(link)
-    sortIx = corr_matrix.index[sortIx].tolist()
-
-    hrp = hrp_helper.getRecBipart(cov_matrix, sortIx, mean_matrix)
+    # sortIx = hrp_helper.getQuasiDiag(link)
+    # sortIx = corr_matrix.index[sortIx].tolist()
+    #
+    # hrp = hrp_helper.getRecBipart(cov_matrix, sortIx)
+    sort_ls = hrp_helper.getClusterLink(link)
+    hrp = hrp_helper.getRecPart(cov_matrix, sort_ls)
     hrp[np.abs(hrp) > 1] = 1
     hrp = hrp / hrp.sum()
     return hrp
@@ -97,7 +100,7 @@ def calc_weights(method='risk_parity',
         return w
     elif method == 'hrp':
         w = corr_forecast_df.groupby(level=0).apply(
-            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean)).unstack(level=-1)
+            lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean))#.unstack(level=-1)
         return w
     elif method == 'hrp_dd':
         # can be changed to expanding if want to take into account all data
@@ -108,12 +111,12 @@ def calc_weights(method='risk_parity',
         drawdown_df[drawdown_df>0] = np.exp(drawdown_df[drawdown_df>0])
         w = corr_forecast_df.groupby(level=0).apply(
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=drawdown_df,
-                                            measure='abs_dist')).unstack(-1)
+                                            measure='abs_dist'))#.unstack(-1)
         return w
     elif pre_calc:
         w = corr_forecast_df.groupby(level=0).apply(
             lambda x: calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj_df=obj_df,
-                                            measure='abs_dist')).unstack(level=-1)
+                                            measure='abs_dist'))#.unstack(level=-1)
         return w
 
 def get_data(file_location):
@@ -270,7 +273,7 @@ def calc_final_results(total_return,
                                       corr_forecast_df=cor_forecast_df.dropna(),
                                       cov_forecast_df=cov_forecast_df.dropna(),
                                       returns_df=returns_df,
-                                      lookback_period=24,
+                                      lookback_period=60,
                                       pre_calc=True,
                                       obj_df=obj_df)
         else:
@@ -279,10 +282,10 @@ def calc_final_results(total_return,
                                       corr_forecast_df=cor_forecast_df.dropna(),
                                       cov_forecast_df=cov_forecast_df.dropna(),
                                       returns_df=returns_df,
-                                      lookback_period=24)
+                                      lookback_period=60)
     # save figures
     weights_df.columns = returns_df.columns
-    save_fig(weights_df.resample(rebal_period).last(), "pic/weights_less2/%s.pdf" % method_name)
+    save_fig(weights_df.resample(rebal_period).last(), "pic/weights_new/%s.pdf" % method_name)
     rebal_df = calc_results_matrix(returns_df=returns_df, weights_df=weights_df, rebal_period=rebal_period)
     total_return = pd.concat([total_return, rebal_df.sum(axis=1).rename(method_name)], axis=1)
     results_metrics = pd.concat(
@@ -297,16 +300,9 @@ def calc_final_results_MC(total_return, results_metrics, ret, method):
     cor_forecast, cov_forecast = calc_cor_forecast(ret_df, method='r_cor')
     total_return, results_metrics = calc_final_results(total_return,
                                                        results_metrics,
-                                                       vol_forecast_df=vol_forecast,
-                                                       cor_forecast_df=cor_forecast,
-                                                       cov_forecast_df=cov_forecast,
                                                        returns_df=ret_df,
                                                        method=method)
     return total_return, results_metrics
-
-
-def rebal_freq_convert(returns_df, weights_df, basis_period='M', rebal_period='Y'):
-    returns
 
 
 def main():
@@ -376,12 +372,12 @@ def main():
                                                        method='hrp_val (tier 3)')
     print("=========== HRP Value Portfolio Completed ===========")
 
-    # HRP - Structural Change
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-                                                       method='hrp_strc (tier 2)')
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-                                                       method='hrp_strc (tier 3)')
-    print("=========== HRP Structural Break Portfolio Completed ===========")
+    # # HRP - Structural Change
+    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+    #                                                    method='hrp_strc (tier 2)')
+    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+    #                                                    method='hrp_strc (tier 3)')
+    # print("=========== HRP Structural Break Portfolio Completed ===========")
 
     # display/plot results
     total_return.loc['2003-01-01':, :].apply(lambda x: x/x[0]).plot(grid=True, title='Cumulative Return', figsize=[12, 8])

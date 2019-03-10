@@ -7,21 +7,19 @@ import scipy.optimize
 import hrp_helper
 import warnings
 import MC
+import afp_plot
 
 warnings.filterwarnings("ignore")
 
 
 def F(w, cov_matrix, N):
-    """equal risk parity forula"""
+    """equal risk parity formula"""
     diff = 0
     for i in range(N):
         diff += np.power(w[i] - (np.dot(w, np.dot(cov_matrix,w))/
                           (N * np.dot(cov_matrix, w)[i])),2)
     return diff
 
-#w = [2, 3]
-#cov_matrix = pd.DataFrame([[4,5],[6,7]])
-#F(w, cov_matrix)
 
 def calc_eq_risk_parity_weights(x, cov_forecast_df):
     """calculate weight for each asset,
@@ -68,6 +66,16 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj
     hrp[np.abs(hrp) > 1] = 1
     hrp = hrp / hrp.sum()
     return hrp
+
+#def getHRP(cov,corr):
+#    # Construct a hierarchical portfolio
+#    corr, cov = pd.DataFrame(corr), pd.DataFrame(cov)
+#    dist = correlDist(corr)
+#    link = sch.linkage(dist,'single')
+#    sortIx = getQuasiDiag(link)
+#    sortIx = corr.index[sortIx].tolist() # recover labels
+#    hrp = getRecBipart(cov,sortIx)
+#    return hrp.sort_index()
 
 
 def calc_weights(method='risk_parity',
@@ -278,19 +286,6 @@ def calc_final_results(total_return,
         [results_metrics, calc_metrics(method_name, total_return[method_name].dropna(), weights_df)], axis=0)
     return total_return, results_metrics
 
-def calc_final_results_MC(total_return, results_metrics, ret, method):
-    """calculate weight for Monte-Carlo simulation"""
-    ret_df = pd.DataFrame(ret)
-    vol_forecast, var_forecast = calc_vol_forecast(ret_df, method='r_vol')
-    cor_forecast, cov_forecast = calc_cor_forecast(ret_df, method='r_cor')
-    total_return, results_metrics = calc_final_results(total_return,
-                                                       results_metrics,
-                                                       vol_forecast_df=vol_forecast,
-                                                       cor_forecast_df=cor_forecast,
-                                                       cov_forecast_df=cov_forecast,
-                                                       returns_df=ret_df,
-                                                       method=method)
-    return total_return, results_metrics
 
 def main():
     # get Tier data
@@ -303,7 +298,7 @@ def main():
     results_metrics = pd.DataFrame()
     print("=========== Portfolio Construction Started ===========")
 
-    ################# Benchmark ##################
+#    ################# Benchmark ##################
     # benchmark 1 - 60/40
     weights_dict = {'USBond10Y': 0.4, 'USEq': 0.6}
     weights_b1 = tier1.copy().apply(lambda x: pd.Series(tier1.columns.map(weights_dict).values), axis=1)
@@ -318,62 +313,70 @@ def main():
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df,
                                                        weights_df=weights_aw, method='all-weather')
     print("=========== All Weather Portfolio Completed ===========")
-    
-    # benchmark 3 - Risk Parity Tier 2
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-                                                       method='risk_parity (tier 2)')
-    print("=========== Risk Parity Tier 2 Portfolio Completed ===========")
-    
-    # benchmark 4 - Risk Parity Tier 3
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-                                                       method='risk_parity (tier 3)')
-    print("=========== Risk Parity Tier 3 Portfolio Completed ===========")
-    
-    ################## HRP ##################
-    # HRP - Covariance
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-                                                       method='hrp (tier 2)')
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-                                                       method='hrp (tier 3)')
-    print("=========== HRP Covariance Portfolio Completed ===========")
+#    
+#    # benchmark 3 - Risk Parity Tier 2
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+#                                                       method='risk_parity (tier 2)')
+#    print("=========== Risk Parity Tier 2 Portfolio Completed ===========")
+#    
+#    # benchmark 4 - Risk Parity Tier 3
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+#                                                       method='risk_parity (tier 3)')
+#    print("=========== Risk Parity Tier 3 Portfolio Completed ===========")
+#    
+#    ################## HRP ##################
+#    # HRP - Covariance
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+#                                                       method='hrp (tier 2)')
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+#                                                       method='hrp (tier 3)')
+#    print("=========== HRP Covariance Portfolio Completed ===========")
     
     # HRP - Maximum Drawdown
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-                                                       method='hrp_dd (tier 2)')
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-                                                       method='hrp_dd (tier 3)')
-    print("=========== HRP Maximum Drawdown Portfolio Completed ===========")
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+#                                                       method='hrp_dd (tier 2)')
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+#                                                       method='hrp_dd (tier 3)')
+#    print("=========== HRP Maximum Drawdown Portfolio Completed ===========")
     
-    # HRP - Downside Beta
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-                                                       method='hrp_beta (tier 2)')
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-                                                       method='hrp_beta (tier 3)')
-    print("=========== HRP Downside Beta Portfolio Completed ===========")
+#    # HRP - Downside Beta
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+#                                                       method='hrp_beta (tier 2)')
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+#                                                       method='hrp_beta (tier 3)')
+#    print("=========== HRP Downside Beta Portfolio Completed ===========")
+#    
+#    # HRP - Values
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+#                                                       method='hrp_val (tier 2)')
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+#                                                       method='hrp_val (tier 3)')
+#    print("=========== HRP Value Portfolio Completed ===========")
     
-    # HRP - Values
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-                                                       method='hrp_val (tier 2)')
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-                                                       method='hrp_val (tier 3)')
-    print("=========== HRP Value Portfolio Completed ===========")
-    
-    # HRP - Structural Change
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-                                                       method='hrp_strc (tier 2)')
-    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
-                                                       method='hrp_strc (tier 3)')
+#    # HRP - Structural Change
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+#                                                       method='hrp_strc (tier 2)')
+#    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
+#                                                       method='hrp_strc (tier 3)')
     print("=========== HRP Structural Break Portfolio Completed ===========")
 
     # display/plot results
     total_return.plot(grid=True, title='Cumulative Return', figsize=[12, 8])
     plt.savefig("pic/total_return.pdf")
-    print(results_metrics.to_string())
-    total_return.to_csv("results/total_return.csv")
-    results_metrics.to_csv("results/results.csv")
+    # add crisis plot
+    afp_plot.crisis_period_plot(tier1, total_return)
 
-    # Monte Carlo
-#    total_return_MC, results_metrics_MC = MC.hrpMC()
+    print(results_metrics.to_string())
+#    total_return.to_csv("results/total_return.csv")
+#    results_metrics.to_csv("results/results.csv")
+
+    print("=========== Monte Carlo Started ===========")
+    # Monte Carlo, define all the methods we want to test
+    methods = ['hrp_dd', 'risk_parity', 'equal_risk_parity']
+    total_return_MC, results_metrics_MC = MC.hrpMC(methods)
+    print("=========== Monte Carlo Completed ===========")
+
 
 if __name__ == "__main__":
     main()
+

@@ -7,6 +7,8 @@ import scipy.optimize
 import warnings
 import hrp_helper
 import MC
+import afp_plot
+import os
 from scipy.cluster.hierarchy import dendrogram
 
 warnings.filterwarnings("ignore")
@@ -142,8 +144,8 @@ def save_fig(df, file_location):
 
 def calc_rebal(x, portfolio_df, returns_df, weights_df, txn_cost):
     prev_period = x.index[0]
-    curr_start = portfolio_df.index[portfolio_df.index.get_loc(x.index[0]) + 1]
-    curr_end = x.index[1]
+    curr_start = np.datetime64(portfolio_df.index[portfolio_df.index.get_loc(x.index[0]) + 1])
+    curr_end = (x.index[1])
 
     # calculate percentage increase over the period
     period_return = np.exp(returns_df.loc[curr_start:curr_end, :].cumsum())
@@ -225,7 +227,6 @@ def calc_results_matrix(returns_df,
     portfolio_df = weights_df.resample('M').fillna('pad')
     weights_df = weights_df.resample(rebal_period).last()
     weights_df.rolling(2).apply(lambda x: calc_rebal(x, portfolio_df, returns_df, weights_df, txn_cost), raw=False)
-
     return portfolio_df.dropna()
 
 
@@ -292,7 +293,7 @@ def calc_final_results(total_return,
                                       lookback_period=60)
     # save figures
     weights_df.columns = returns_df.columns
-    save_fig(weights_df.resample(rebal_period).last(), "pic/weights_new/%s.pdf" % method_name)
+    save_fig(weights_df.resample(rebal_period).last(), os.getcwd() + r'/pic/weights_new/%s.pdf' % method_name)
     rebal_df = calc_results_matrix(returns_df=returns_df, weights_df=weights_df, rebal_period=rebal_period)
     total_return = pd.concat([total_return, rebal_df.sum(axis=1).rename(method_name)], axis=1)
     results_metrics = pd.concat(
@@ -300,16 +301,16 @@ def calc_final_results(total_return,
     return total_return, results_metrics
 
 
-def calc_final_results_MC(total_return, results_metrics, ret, method):
-    """calculate weight for Monte-Carlo simulation"""
-    ret_df = pd.DataFrame(ret)
-    vol_forecast, var_forecast = calc_vol_forecast(ret_df, method='r_vol')
-    cor_forecast, cov_forecast = calc_cor_forecast(ret_df, method='r_cor')
-    total_return, results_metrics = calc_final_results(total_return,
-                                                       results_metrics,
-                                                       returns_df=ret_df,
-                                                       method=method)
-    return total_return, results_metrics
+#def calc_final_results_MC(total_return, results_metrics, ret, method):
+#    """calculate weight for Monte-Carlo simulation"""
+#    ret_df = pd.DataFrame(ret)
+#    vol_forecast, var_forecast = calc_vol_forecast(ret_df, method='r_vol')
+#    cor_forecast, cov_forecast = calc_cor_forecast(ret_df, method='r_cor')
+#    total_return, results_metrics = calc_final_results(total_return,
+#                                                       results_metrics,
+#                                                       returns_df=ret_df,
+#                                                       method=method)
+#    return total_return, results_metrics
 
 
 def main():
@@ -337,8 +338,24 @@ def main():
     weights_dict = {'Gold':0.075, 'TRCommodity':0.075, 'USBond10Y':0.55, 'USEq':0.3}
     weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df,
-                                                       weights_df=weights_aw, method='all-weather')
+                                                       weights_df=weights_aw, method='all-weather (original)')
     print("=========== All Weather Portfolio Completed ===========")
+
+    # benchmark 2_prime - All Weather with factors
+    aw_df = tier3.loc[:, ['Gold', 'TRCommodity', 'USBond10Y', 'USEq'
+                          , 'BAB', 'CS', 'UMD_Large', 'UMD_Small']].dropna()
+    weights_dict = {'Gold':0.075,
+                    'TRCommodity':0.075,
+                    'USBond10Y':0.45,
+                    'USEq':0.2,
+                    'BAB':0.05,
+                    'CS':0.05,
+                    'UMD_Large':0.05,
+                    'UMD_Small':0.05}
+    weights_aw = aw_df.copy().apply(lambda x: pd.Series(aw_df.columns.map(weights_dict).values), axis=1)
+    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=aw_df,
+                                                       weights_df=weights_aw, method='all-weather (star)')
+    print("=========== All Weather star Portfolio Completed ===========")
 
     # benchmark 3 - Risk Parity Tier 2
     total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
@@ -393,13 +410,23 @@ def main():
     afp_plot.crisis_period_plot(tier1, total_return)
 
     print(results_metrics.to_string())
-#    total_return.to_csv("results/total_return.csv")
-#    results_metrics.to_csv("results/results.csv")
+    total_return.to_csv("results/total_return.csv")
+    results_metrics.to_csv("results/results.csv")
 
     print("=========== Monte Carlo Started ===========")
     # Monte Carlo, define all the methods we want to test
-    methods = ['hrp_dd', 'risk_parity', 'equal_risk_parity']
-    total_return_MC, results_metrics_MC = MC.hrpMC(methods)
+    methods = ['all-weather (star)' , 'hrp', 'risk_parity']
+    col_name = tier3.columns
+    total_return_MC, results_metrics_MC = MC.hrpMC(methods,
+                                                   col_name,
+                                                   numIters=10,
+                                                   size0=7,
+                                                   size1=7,
+                                                   )
+    for method in methods:
+        total_return_MC[method].to_csv("results/%s.csv" % (method + " total_return_MC"))
+        results_metrics_MC[method].to_csv("results/%s.csv" % (method + " results_MC"))
+
     print("=========== Monte Carlo Completed ===========")
 
 

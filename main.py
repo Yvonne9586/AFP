@@ -299,7 +299,7 @@ def main():
     ret_df = ret_df.replace(0.0, np.nan).apply(lambda x: np.log(1+x))    # to prevent volatility to explode
     tier1 = ret_df.loc[:, ['USEq', 'USBond10Y']].dropna()
     tier2 = ret_df.loc[:, 'GermanBond10Y':'USEq'].dropna()
-    #tier3 = ret_df.dropna()
+    tier3 = ret_df.dropna()
     #tier3 inclusive of tier1 and 2
     tier3 = ret_df
     total_return = pd.DataFrame()

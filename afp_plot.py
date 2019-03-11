@@ -30,26 +30,41 @@ def set_crisis_periods(USEq_df, drawdown):
     USEq_df["US_Crisis_mean"] = USEq_df["US_Crisis"].rolling(3).mean()
     return USEq_df
 
-def crisis_period_plot(tier1, total_return, drawdown=-0.2):
+def crisis_period_plot(tier1, total_return, run_env_name, plot_flag=2, drawdown=-0.2):
     """plot cumulative return with crisis period shaded in grey"""
-    # recessions are marked as 1 in the data
     USEq_df = set_crisis_periods(tier1, drawdown)
+    begin_date = '1999-02-01'
+    end_date = '2018-12-31'
+    _col = ["6040",
+            "all-weather (star)",
+            "risk_parity (tier 3)",
+            "hrp (tier 3)",
+            "hrp_dd (tier 3)",
+            "hrp_beta (tier 3)",
+            "hrp_val (tier 3)"
+            ]
+    if plot_flag == 2:
+        begin_date = '1969-02-01'
+        end_date = '2018-12-31'
+        _col = ["6040",
+                "all-weather (original)",
+                "risk_parity (tier 2)",
+                "hrp (tier 2)",
+                "hrp_dd (tier 2)",
+                "hrp_beta (tier 2)",
+                "hrp_val (tier 2)",
+                "hrp_strc (tier 2)"
+                ]
+    _total_return = total_return.loc[begin_date:end_date, _col].dropna()
+    _total_return.apply(lambda x: x/x[0]).plot(grid=True, title='Cumulative Return', figsize=[12, 8])
+
     recs = ((USEq_df.query('US_Crisis_mean>=0.4')))
-
-    # Select the two recessions over the time period
-    recs_2k = recs.loc['2001']
-    recs_2k8 = recs.loc['2008':'2011']
-
-    # now we can grab the indices for the start
-    # and end of each recession
-    recs2k_bgn = recs_2k.index[0]
-    recs2k_end = recs_2k.index[-1]
-
-    recs2k8_bgn = recs_2k8.index[0]
-    recs2k8_end = recs_2k8.index[-1]
-
-    total_return.loc['2000-01-01':, :].apply(lambda x: x/x[0]).plot(grid=True, title='Cumulative Return', figsize=[12, 8])
-    plt.axvspan(recs2k_bgn, recs2k_end, color=sns.xkcd_rgb['grey'], alpha=0.5)
-    plt.axvspan(recs2k8_bgn, recs2k8_end,  color=sns.xkcd_rgb['grey'], alpha=0.5)
-    plt.savefig(os.getcwd() + r'/pic/crisis_plot.pdf')
+    _year = list(map(str,range(_total_return.index[0].year, _total_return.index[-1].year+1)))
+    for year in _year:
+        recs_2k = recs.loc[year]
+        if recs_2k.shape[0] > 0:
+            recs2k_bgn = recs_2k.index[0]
+            recs2k_end = recs_2k.index[-1]        
+            plt.axvspan(recs2k_bgn, recs2k_end, color=sns.xkcd_rgb['grey'], alpha=0.5)
+    plt.savefig("pic/total_return_%s.pdf" % (run_env_name+" tier " + str(plot_flag)))
     return None

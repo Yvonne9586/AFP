@@ -11,7 +11,7 @@ import afp_plot
 import os
 from scipy.cluster.hierarchy import dendrogram
 import sys
-import os
+
 
 warnings.filterwarnings("ignore")
 run_env_name = sys.argv[1]
@@ -311,18 +311,6 @@ def calc_final_results(total_return,
     return total_return, results_metrics
 
 
-#def calc_final_results_MC(total_return, results_metrics, ret, method):
-#    """calculate weight for Monte-Carlo simulation"""
-#    ret_df = pd.DataFrame(ret)
-#    vol_forecast, var_forecast = calc_vol_forecast(ret_df, method='r_vol')
-#    cor_forecast, cov_forecast = calc_cor_forecast(ret_df, method='r_cor')
-#    total_return, results_metrics = calc_final_results(total_return,
-#                                                       results_metrics,
-#                                                       returns_df=ret_df,
-#                                                       method=method)
-#    return total_return, results_metrics
-
-
 def main():
     # get Tier data
     ret_df = get_data("data/combined_dataset_new.csv").applymap(lambda x: np.nan if x<1 else x).pct_change()
@@ -415,10 +403,11 @@ def main():
 
     # display/plot results
     # add crisis plot
-#    afp_plot.crisis_period_plot(tier1, total_return)
-    total_return.loc['2003-01-01':'2018-12-31', :].apply(lambda x: x / x[0]).plot(grid=True, title='Cumulative Return',
-                                                                               figsize=[12, 8])
-    plt.savefig("pic/total_return_%s.pdf" % run_env_name)
+#    total_return = pd.read_csv("results/total_return_10y_all.csv", index_col=0)
+#    total_return.index = pd.DatetimeIndex(total_return.index)
+    tier_flag = 2
+    afp_plot.crisis_period_plot(tier1, total_return, run_env_name, plot_flag=tier_flag)
+
     print(results_metrics.to_string())
     total_return.to_csv("results/total_return_%s.csv" % run_env_name)
     results_metrics.to_csv("results/results_%s.csv" % run_env_name)
@@ -429,7 +418,7 @@ def main():
     col_name = tier3.columns
     total_return_MC, results_metrics_MC = MC.hrpMC(methods,
                                                    col_name,
-                                                   numIters=1,
+                                                   numIters=100,
                                                    size0=7,
                                                    size1=7,
                                                    )

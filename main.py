@@ -10,8 +10,11 @@ import MC
 import afp_plot
 import os
 from scipy.cluster.hierarchy import dendrogram
+import sys
+import os
 
 warnings.filterwarnings("ignore")
+run_env_name = sys.argv[1]
 
 
 def F(w, cov_matrix, N):
@@ -50,7 +53,9 @@ def calc_hrp_corr_weights(x, corr_forecast_df, cov_forecast_df, return_mean, obj
         if date not in obj_df.index:
             return pd.Series()
         obj = obj_df.loc[date]
-        obj = obj.apply(lambda x: x if x>0 else 0)  # force negative side to cluster
+        # obj = (obj - obj.mean()) / obj.std()    # normalize objectives
+        obj = obj.apply(lambda x: 1 / (1 + np.exp(-x)))
+        # obj = obj.apply(lambda x: x if x > 0 else 0)  # force negative side to cluster
         dist = np.zeros((obj.shape[0], obj.shape[0]))
         for h in range(obj.shape[0]):
             for k in range(obj.shape[0]):
@@ -113,7 +118,7 @@ def calc_weights(method='risk_parity',
         return w
     elif method == 'hrp_dd':
         # can be changed to expanding if want to take into account all data
-        drawdown_df = returns_df.expanding(lookback_period).apply(lambda x: -hrp_helper.mdd(x), raw=False)
+        drawdown_df = returns_df.expanding(lookback_period).apply(lambda x: hrp_helper.mdd(x), raw=False)
         #standardize dd
         drawdown_df = drawdown_df.sub(drawdown_df.mean(axis = 1), axis = 0)
         drawdown_df[drawdown_df<0] = 0
@@ -222,7 +227,7 @@ def calc_metrics(title, car, weights):
 def calc_results_matrix(returns_df,
                         weights_df,
                         txn_cost=0.001,
-                        rebal_period='Y'):
+                        rebal_period='M'):
     # setup the portfolio as the weights
     portfolio_df = weights_df.resample('M').fillna('pad')
     weights_df = weights_df.resample(rebal_period).last()
@@ -293,7 +298,12 @@ def calc_final_results(total_return,
                                       lookback_period=60)
     # save figures
     weights_df.columns = returns_df.columns
-    save_fig(weights_df.resample(rebal_period).last(), os.getcwd() + r'/pic/weights_new/%s.pdf' % method_name)
+#    save_fig(weights_df.resample(rebal_period).last(), os.getcwd() + r'/pic/weights_new/%s.pdf' % method_name)
+    # print(weights_df.head().to_string())
+    directory = "pic/weights_%s/" % run_env_name
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    save_fig(weights_df.resample(rebal_period).last(), directory + "%s.pdf" % method_name)
     rebal_df = calc_results_matrix(returns_df=returns_df, weights_df=weights_df, rebal_period=rebal_period)
     total_return = pd.concat([total_return, rebal_df.sum(axis=1).rename(method_name)], axis=1)
     results_metrics = pd.concat(
@@ -397,21 +407,22 @@ def main():
     print("=========== HRP Value Portfolio Completed ===========")
 
     # # HRP - Structural Change
-    # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
-    #                                                    method='hrp_strc (tier 2)')
+    total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier2,
+                                                       method='hrp_strc (tier 2)')
     # total_return, results_metrics = calc_final_results(total_return, results_metrics, returns_df=tier3,
     #                                                    method='hrp_strc (tier 3)')
-    # print("=========== HRP Structural Break Portfolio Completed ===========")
+    print("=========== HRP Structural Break Portfolio Completed ===========")
 
     # display/plot results
     total_return.loc['2003-01-01':, :].apply(lambda x: x/x[0]).plot(grid=True, title='Cumulative Return', figsize=[12, 8])
-    plt.savefig("pic/total_return.pdf")
     # add crisis plot
-    afp_plot.crisis_period_plot(tier1, total_return)
-
+#    afp_plot.crisis_period_plot(tier1, total_return)
+    total_return.loc['2003-01-01':'2018-12-31', :].apply(lambda x: x / x[0]).plot(grid=True, title='Cumulative Return',
+                                                                               figsize=[12, 8])
+    plt.savefig("pic/total_return_%s.pdf" % run_env_name)
     print(results_metrics.to_string())
-    total_return.to_csv("results/total_return.csv")
-    results_metrics.to_csv("results/results.csv")
+    total_return.to_csv("results/total_return_%s.csv" % run_env_name)
+    results_metrics.to_csv("results/results_%s.csv" % run_env_name)
 
     print("=========== Monte Carlo Started ===========")
     # Monte Carlo, define all the methods we want to test

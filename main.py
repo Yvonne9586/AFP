@@ -414,7 +414,6 @@ def main():
     print("=========== HRP Structural Break Portfolio Completed ===========")
 
     # display/plot results
-    total_return.loc['2003-01-01':, :].apply(lambda x: x/x[0]).plot(grid=True, title='Cumulative Return', figsize=[12, 8])
     # add crisis plot
 #    afp_plot.crisis_period_plot(tier1, total_return)
     total_return.loc['2003-01-01':'2018-12-31', :].apply(lambda x: x / x[0]).plot(grid=True, title='Cumulative Return',
@@ -430,7 +429,7 @@ def main():
     col_name = tier3.columns
     total_return_MC, results_metrics_MC = MC.hrpMC(methods,
                                                    col_name,
-                                                   numIters=10,
+                                                   numIters=1,
                                                    size0=7,
                                                    size1=7,
                                                    )
@@ -443,4 +442,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
